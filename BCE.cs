@@ -23,7 +23,8 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
     [ScriptParameter(DisplayName = "Encrypt Mode", Description = "勾选=加密，取消=解密", Order = 1)]
     public bool Encrypt { get; set; } = true;
 
-    private const int BlockSize = 16;     // 固定 16×16
+    [ScriptParameter(DisplayName = "块大小", Description = "分块大小 (16 / 32 / 64)", Order = 2)]
+    public int BlockSize { get; set; } = 32;
 
     // --------------- 端口定义 --------------
     public override Dictionary<string, PortDefinition> GetInputPorts()
@@ -50,7 +51,7 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         if (!inputs.TryGetValue("f32bmp", out var inputObj) || inputObj is not Mat src)
             return outputs;
 
-        // 1) 裁切到最接近且不超过的 16 的倍数
+        // 1) 裁切到最接近且不超过的块大小的倍数
         int newW = (src.Width / BlockSize) * BlockSize;
         int newH = (src.Height / BlockSize) * BlockSize;
         var cropped = src.SubMat(0, newH, 0, newW).Clone(); // Clone 避免后续修改原图
@@ -177,9 +178,23 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         encryptCheck.Checked += (s, e) => { Encrypt = true; OnParameterChanged(nameof(Encrypt), Encrypt); };
         encryptCheck.Unchecked += (s, e) => { Encrypt = false; OnParameterChanged(nameof(Encrypt), Encrypt); };
 
+        // 块大小选择
+        var sizeLabel = new Label { Content = "Block Size:" };
+        var sizeCombo = new ComboBox { Width = 120, ItemsSource = new[] { 16, 32, 64 }, SelectedItem = BlockSize };
+        sizeCombo.SelectionChanged += (s, e) =>
+        {
+            if (sizeCombo.SelectedItem is int val)
+            {
+                var old = BlockSize; BlockSize = val;
+                OnParameterChanged(nameof(BlockSize), val);
+            }
+        };
+
         panel.Children.Add(seedLabel);
         panel.Children.Add(seedBox);
         panel.Children.Add(encryptCheck);
+        panel.Children.Add(sizeLabel);
+        panel.Children.Add(sizeCombo);
         return panel;
     }
 
@@ -203,6 +218,12 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             set { if (_s.Encrypt != value) { var old = _s.Encrypt; _s.Encrypt = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(Encrypt), old, value); } }
         }
 
+        public int BlockSize
+        {
+            get => _s.BlockSize;
+            set { if (_s.BlockSize != value) { var old = _s.BlockSize; _s.BlockSize = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(BlockSize), old, value); } }
+        }
+
         public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
         public override Dictionary<string, object> GetParameterData()
@@ -210,15 +231,17 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             return new Dictionary<string, object>
             {
                 [nameof(Seed)] = Seed,
-                [nameof(Encrypt)] = Encrypt
+                [nameof(Encrypt)] = Encrypt,
+                [nameof(BlockSize)] = BlockSize
             };
         }
         public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() =>
         {
             if (d.TryGetValue(nameof(Seed), out var s) && s is int i) Seed = i;
             if (d.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
+            if (d.TryGetValue(nameof(BlockSize), out var bs) && bs is int bsInt) BlockSize = bsInt;
         });
-        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; });
+        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlockSize = 32; });
     }
 
     // ------------- 序列化支持 -------------
@@ -227,7 +250,8 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         return new Dictionary<string, object>
         {
             [nameof(Seed)] = Seed,
-            [nameof(Encrypt)] = Encrypt
+            [nameof(Encrypt)] = Encrypt,
+            [nameof(BlockSize)] = BlockSize
         };
     }
 
@@ -235,6 +259,7 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
     {
         if (data.TryGetValue(nameof(Seed), out var s) && s is int i) Seed = i;
         if (data.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
+        if (data.TryGetValue(nameof(BlockSize), out var bs) && bs is int bsInt) BlockSize = bsInt;
     }
 
     // ------------- 参数变化处理 -------------
