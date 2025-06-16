@@ -1,0 +1,23 @@
+# Compiled output
+compiled/
+
+# Resource files
+rivivalresources/
+
+# Prototype scripts
+ScriptPrototypes/
+mytest.cs
+test1.cs
+元数据测试.cs
+*.py
+
+# Example scripts
+FlexiblePortExample.cs
+高级UI示例.cs
+示例元数据处理脚本.cs
+
+# Documentation and other non-script files
+*.txt
+*.md
+.initialized
+脚本开发格言* 
