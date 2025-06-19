@@ -8,7 +8,7 @@ using System.Windows.Controls;
 using Tunnel_Next.Services.Scripting;
 
 [RevivalScript(
-    Name = "混淆图像",
+    Name = "混淆图像-Revised",
     Author = "Your Name",
     Description = "基于 16×16 分块、块/通道可逆打乱的图像加密脚本",
     Version = "1.0",
@@ -28,6 +28,12 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
 
     [ScriptParameter(DisplayName = "块行数", Description = "图像高方向块数量", Order = 3)]
     public int BlocksY { get; set; } = 32;
+
+    [ScriptParameter(DisplayName = "修复伪影", Description = "解密后对块边缘进行平滑处理以减少压缩伪影", Order = 4)]
+    public bool SmoothArtifacts { get; set; } = true;
+
+    [ScriptParameter(DisplayName = "修复强度", Description = "边缘平滑的宽度（像素 > 0）", Order = 5)]
+    public int SmoothWidth { get; set; } = 2;
 
     // --------------- 端口定义 --------------
     public override Dictionary<string, PortDefinition> GetInputPorts()
@@ -108,6 +114,12 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             }
         }
 
+        // 如果解密，则选择性平滑块边界以减少压缩伪影
+        if (!Encrypt && SmoothArtifacts && SmoothWidth > 0)
+        {
+            SmoothBlockBoundaries(dst, blockW, blockH, blocksX, blocksY, SmoothWidth);
+        }
+
         outputs["f32bmp"] = dst;
         cropped.Dispose();
         return outputs;
@@ -164,6 +176,53 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         return merged;
     }
 
+    /// <summary>
+    /// 在解密后平滑块边界以减少压缩伪影
+    /// </summary>
+    private static void SmoothBlockBoundaries(Mat image, int blockW, int blockH, int blocksX, int blocksY, int smoothWidth)
+    {
+        if (smoothWidth <= 0) return;
+
+        // 内核大小必须为奇数。我们使用的内核大小约为平滑宽度的两倍，以确保效果。
+        int ksize = (smoothWidth * 2) + 1;
+
+        // 平滑水平边界
+        for (int by = 1; by < blocksY; by++)
+        {
+            int y_seam = by * blockH;
+            
+            // 定义一个以接缝为中心、宽度为 smoothWidth * 2 的ROI
+            int roiY = Math.Max(0, y_seam - smoothWidth);
+            int roiHeight = Math.Min(image.Height - roiY, smoothWidth * 2);
+            if (roiHeight <= ksize) continue; // ROI太小则跳过
+
+            OpenCvSharp.Rect seamRoi = new OpenCvSharp.Rect(0, roiY, image.Width, roiHeight);
+            using (Mat roiMat = new Mat(image, seamRoi))
+            {
+                // 仅在垂直方向上应用高斯模糊
+                Cv2.GaussianBlur(roiMat, roiMat, new OpenCvSharp.Size(1, ksize), 0);
+            }
+        }
+
+        // 平滑垂直边界
+        for (int bx = 1; bx < blocksX; bx++)
+        {
+            int x_seam = bx * blockW;
+
+            // 定义ROI
+            int roiX = Math.Max(0, x_seam - smoothWidth);
+            int roiWidth = Math.Min(image.Width - roiX, smoothWidth * 2);
+            if (roiWidth <= ksize) continue; // ROI太小则跳过
+
+            OpenCvSharp.Rect seamRoiV = new OpenCvSharp.Rect(roiX, 0, roiWidth, image.Height);
+            using (Mat roiMat = new Mat(image, seamRoiV))
+            {
+                // 仅在水平方向上应用高斯模糊
+                Cv2.GaussianBlur(roiMat, roiMat, new OpenCvSharp.Size(ksize, 1), 0);
+            }
+        }
+    }
+
     // --------------- UI 控件 --------------
     public override FrameworkElement CreateParameterControl()
     {
@@ -215,6 +274,27 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         panel.Children.Add(bxBox);
         panel.Children.Add(byLabel);
         panel.Children.Add(byBox);
+
+        // 修复伪影选项
+        var smoothCheck = new CheckBox { Content = "修复压缩伪影", IsChecked = SmoothArtifacts };
+        smoothCheck.Checked += (s, e) => { SmoothArtifacts = true; OnParameterChanged(nameof(SmoothArtifacts), true); };
+        smoothCheck.Unchecked += (s, e) => { SmoothArtifacts = false; OnParameterChanged(nameof(SmoothArtifacts), false); };
+
+        var smoothLabel = new Label { Content = "修复强度:" };
+        var smoothBox = new TextBox { Text = SmoothWidth.ToString(), Width = 80 };
+        smoothBox.TextChanged += (s, e) =>
+        {
+            if (int.TryParse(smoothBox.Text, out int v) && v > 0)
+            {
+                var old = SmoothWidth; SmoothWidth = v;
+                OnParameterChanged(nameof(SmoothWidth), v);
+            }
+        };
+        
+        panel.Children.Add(smoothCheck);
+        panel.Children.Add(smoothLabel);
+        panel.Children.Add(smoothBox);
+
         return panel;
     }
 
@@ -250,6 +330,18 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             set { if (_s.BlocksY != value) { var old = _s.BlocksY; _s.BlocksY = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(BlocksY), old, value); } }
         }
 
+        public bool SmoothArtifacts
+        {
+            get => _s.SmoothArtifacts;
+            set { if (_s.SmoothArtifacts != value) { var old = _s.SmoothArtifacts; _s.SmoothArtifacts = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(SmoothArtifacts), old, value); } }
+        }
+
+        public int SmoothWidth
+        {
+            get => _s.SmoothWidth;
+            set { if (_s.SmoothWidth != value) { var old = _s.SmoothWidth; _s.SmoothWidth = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(SmoothWidth), old, value); } }
+        }
+
         public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
         public override Dictionary<string, object> GetParameterData()
@@ -259,7 +351,9 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
                 [nameof(Seed)] = Seed,
                 [nameof(Encrypt)] = Encrypt,
                 [nameof(BlocksX)] = BlocksX,
-                [nameof(BlocksY)] = BlocksY
+                [nameof(BlocksY)] = BlocksY,
+                [nameof(SmoothArtifacts)] = SmoothArtifacts,
+                [nameof(SmoothWidth)] = SmoothWidth
             };
         }
         public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() =>
@@ -268,8 +362,10 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             if (d.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
             if (d.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt;
             if (d.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt;
+            if (d.TryGetValue(nameof(SmoothArtifacts), out var sa) && sa is bool saBool) SmoothArtifacts = saBool;
+            if (d.TryGetValue(nameof(SmoothWidth), out var sw) && sw is int swInt) SmoothWidth = swInt;
         });
-        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; });
+        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; SmoothArtifacts = true; SmoothWidth = 2; });
     }
 
     // ------------- 序列化支持 -------------
@@ -280,7 +376,9 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             [nameof(Seed)] = Seed,
             [nameof(Encrypt)] = Encrypt,
             [nameof(BlocksX)] = BlocksX,
-            [nameof(BlocksY)] = BlocksY
+            [nameof(BlocksY)] = BlocksY,
+            [nameof(SmoothArtifacts)] = SmoothArtifacts,
+            [nameof(SmoothWidth)] = SmoothWidth
         };
     }
 
@@ -290,6 +388,8 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         if (data.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
         if (data.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt;
         if (data.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt;
+        if (data.TryGetValue(nameof(SmoothArtifacts), out var sa) && sa is bool saBool) SmoothArtifacts = saBool;
+        if (data.TryGetValue(nameof(SmoothWidth), out var sw) && sw is int swInt) SmoothWidth = swInt;
     }
 
     // ------------- 参数变化处理 -------------
