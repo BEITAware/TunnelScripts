@@ -1,0 +1,12 @@
+{
+  "References": [
+    "System.Text.Json.dll",
+    "System.Net.Http.dll",
+    "PresentationCore.dll",
+    "PresentationFramework.dll",
+    "WindowsBase.dll",
+    "System.Drawing.dll",
+    "System.Diagnostics.Process.dll",
+    "System.Windows.Forms.dll"
+  ]
+}

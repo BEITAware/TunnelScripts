@@ -1,9 +1,6 @@
 # Compiled output
 compiled/
 
-# Resource files
-rivivalresources/
-
 # Prototype scripts
 ScriptPrototypes/
 mytest.cs
