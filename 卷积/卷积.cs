@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "卷积",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "利用内置或输入的卷积核执行卷积运算",
     Version = "1.0",
     Category = "卷积",
@@ -42,7 +42,7 @@ public class ConvolutionScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像"),
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像"),
             ["kernel"] = new PortDefinition("kernel", false, "卷积核（可选）")
         };
     }
@@ -500,220 +500,159 @@ public class ConvolutionScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
 
-        // 创建ViewModel
+        foreach (var path in resourcePaths)
+        {
+            try
+            {
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"资源加载失败: {path} - {ex.Message}");
+            }
+        }
+
+        if (resources.Contains("Layer_2"))
+        {
+            mainPanel.Background = resources["Layer_2"] as Brush;
+        }
+
         var viewModel = CreateViewModel() as ConvolutionViewModel;
         mainPanel.DataContext = viewModel;
 
-        // 标题
         var titleLabel = new Label
         {
-            Content = "卷积滤波",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
+            Content = "卷积设置",
         };
+        if (resources.Contains("TitleLabelStyle"))
+        {
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleLabel);
 
-        // 内置核类型下拉框
-        var kernelTypePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var kernelTypeLabel = new Label
+        // 内置核类型
+        mainPanel.Children.Add(CreateLabel("内置核类型:", resources));
+        var kernelTypeComboBox = new ComboBox
         {
-            Content = "内置核类型:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            ItemsSource = new[] { "custom", "sharpen", "edge_detect", "edge_enhance", "emboss", "blur", "gaussian_blur" },
+            Margin = new Thickness(0, 2, 0, 10)
         };
-        kernelTypePanel.Children.Add(kernelTypeLabel);
-
-        var kernelTypeCombo = new ComboBox
+        if (resources.Contains("DefaultComboBoxStyle"))
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        kernelTypeCombo.Items.Add("custom");
-        kernelTypeCombo.Items.Add("sharpen");
-        kernelTypeCombo.Items.Add("edge_detect");
-        kernelTypeCombo.Items.Add("edge_enhance");
-        kernelTypeCombo.Items.Add("emboss");
-        kernelTypeCombo.Items.Add("blur");
-        kernelTypeCombo.Items.Add("gaussian_blur");
+            kernelTypeComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        }
+        kernelTypeComboBox.SetBinding(ComboBox.SelectedItemProperty, new Binding("KernelType") { Source = viewModel, Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(kernelTypeComboBox);
 
-        var kernelTypeBinding = new Binding(nameof(KernelType))
+        // 自定义核 (仅在KernelType为custom时显示)
+        var customKernelPanel = new StackPanel();
+        customKernelPanel.SetBinding(StackPanel.VisibilityProperty, new Binding("KernelType")
         {
             Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        kernelTypeCombo.SetBinding(ComboBox.SelectedValueProperty, kernelTypeBinding);
-        kernelTypePanel.Children.Add(kernelTypeCombo);
-        mainPanel.Children.Add(kernelTypePanel);
+            Converter = new StringToVisibilityConverter(),
+            ConverterParameter = "custom"
+        });
 
-        // 自定义卷积核文本框
-        var customKernelPanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var customKernelLabel = new Label
-        {
-            Content = "自定义卷积核:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        customKernelPanel.Children.Add(customKernelLabel);
-
+        customKernelPanel.Children.Add(CreateLabel("自定义卷积核 (格式: 1,0,-1;1,0,-1;1,0,-1):", resources));
         var customKernelTextBox = new TextBox
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Height = 60,
+            AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            AcceptsReturn = true
+            Height = 60,
+            Margin = new Thickness(0, 2, 0, 10)
         };
-
-        var customKernelBinding = new Binding(nameof(CustomKernel))
+        if (resources.Contains("DefaultTextBoxStyle"))
         {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        customKernelTextBox.SetBinding(TextBox.TextProperty, customKernelBinding);
+            customKernelTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        customKernelTextBox.SetBinding(TextBox.TextProperty, new Binding("CustomKernel") { Source = viewModel, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
         customKernelPanel.Children.Add(customKernelTextBox);
         mainPanel.Children.Add(customKernelPanel);
+        
+        // 内置核强度
+        mainPanel.Children.Add(CreateLabel("内置核强度:", resources));
+        var intensitySlider = new Slider
+        {
+            Minimum = 0.1,
+            Maximum = 5.0,
+            SmallChange = 0.1,
+            Margin = new Thickness(0, 2, 0, 10)
+        };
+        if (resources.Contains("DefaultSliderStyle"))
+        {
+            intensitySlider.Style = resources["DefaultSliderStyle"] as Style;
+        }
+        intensitySlider.SetBinding(Slider.ValueProperty, new Binding("Intensity") { Source = viewModel, Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(intensitySlider);
 
-        // 创建滑块控件
-        mainPanel.Children.Add(CreateSliderControl("内置核强度", nameof(Intensity), 0.1, 5.0, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("偏移值", nameof(Bias), -1000, 1000, viewModel));
-
-        // 归一化复选框
-        var normalizePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
+        // 归一化
         var normalizeCheckBox = new CheckBox
         {
             Content = "归一化卷积核",
-            Margin = new Thickness(5, 0, 5, 0),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Margin = new Thickness(0, 5, 0, 10)
         };
-
-        var normalizeBinding = new Binding(nameof(Normalize))
+        if (resources.Contains("DefaultCheckBoxStyle"))
         {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        normalizeCheckBox.SetBinding(CheckBox.IsCheckedProperty, normalizeBinding);
-        normalizePanel.Children.Add(normalizeCheckBox);
-        mainPanel.Children.Add(normalizePanel);
+            normalizeCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
+        normalizeCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding("Normalize") { Source = viewModel, Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(normalizeCheckBox);
 
-        // 边界处理下拉框
-        var borderTypePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var borderTypeLabel = new Label
+        // 偏移值
+        mainPanel.Children.Add(CreateLabel("偏移值:", resources));
+        var biasSlider = new Slider
         {
-            Content = "边界处理:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Minimum = -1000,
+            Maximum = 1000,
+            SmallChange = 1,
+            Margin = new Thickness(0, 2, 0, 10)
         };
-        borderTypePanel.Children.Add(borderTypeLabel);
+        if (resources.Contains("DefaultSliderStyle"))
+        {
+            biasSlider.Style = resources["DefaultSliderStyle"] as Style;
+        }
+        biasSlider.SetBinding(Slider.ValueProperty, new Binding("Bias") { Source = viewModel, Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(biasSlider);
 
-        var borderTypeCombo = new ComboBox
+        // 边界处理
+        mainPanel.Children.Add(CreateLabel("边界处理:", resources));
+        var borderTypeComboBox = new ComboBox
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            ItemsSource = new[] { "replicate", "reflect", "reflect_101", "wrap", "constant" },
+            Margin = new Thickness(0, 2, 0, 10)
         };
-        borderTypeCombo.Items.Add("constant");
-        borderTypeCombo.Items.Add("replicate");
-        borderTypeCombo.Items.Add("reflect");
-        borderTypeCombo.Items.Add("reflect_101");
-        borderTypeCombo.Items.Add("isolated");
+        if (resources.Contains("DefaultComboBoxStyle"))
+        {
+            borderTypeComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        }
+        borderTypeComboBox.SetBinding(ComboBox.SelectedItemProperty, new Binding("BorderType") { Source = viewModel, Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(borderTypeComboBox);
 
-        var borderTypeBinding = new Binding(nameof(BorderType))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        borderTypeCombo.SetBinding(ComboBox.SelectedValueProperty, borderTypeBinding);
-        borderTypePanel.Children.Add(borderTypeCombo);
-        mainPanel.Children.Add(borderTypePanel);
 
         return mainPanel;
     }
 
-    private StackPanel CreateSliderControl(string label, string propertyName, double min, double max, ConvolutionViewModel viewModel)
+    private Label CreateLabel(string content, ResourceDictionary resources)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-
-        // 标签和值显示
-        var headerPanel = new StackPanel { Orientation = Orientation.Horizontal };
-
-        var labelControl = new Label
+        var label = new Label { Content = content };
+        if (resources.Contains("DefaultLabelStyle"))
         {
-            Content = label + ":",
-            Width = 80,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        var valueLabel = new Label
-        {
-            Width = 60,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            HorizontalContentAlignment = HorizontalAlignment.Right
-        };
-
-        headerPanel.Children.Add(labelControl);
-        headerPanel.Children.Add(valueLabel);
-        panel.Children.Add(headerPanel);
-
-        // 滑块
-        var slider = new Slider
-        {
-            Minimum = min,
-            Maximum = max,
-            TickFrequency = (max - min) / 20,
-            IsSnapToTickEnabled = false,
-            Margin = new Thickness(5, 0, 5, 0)
-        };
-
-        // 数据绑定
-        var binding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        slider.SetBinding(Slider.ValueProperty, binding);
-
-        var valueBinding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.OneWay,
-            StringFormat = "F2"
-        };
-        valueLabel.SetBinding(Label.ContentProperty, valueBinding);
-
-        panel.Children.Add(slider);
-        return panel;
+            label.Style = resources["DefaultLabelStyle"] as Style;
+        }
+        return label;
     }
 
     public override IScriptViewModel CreateViewModel()
@@ -760,10 +699,20 @@ public class ConvolutionScript : RevivalScriptBase
 
     public void InitializeNodeInstance(string nodeId)
     {
-        if (!string.IsNullOrEmpty(nodeId))
-        {
-            NodeInstanceId = nodeId;
-        }
+        NodeInstanceId = nodeId;
+    }
+}
+
+public class StringToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        return value?.ToString() == parameter?.ToString() ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        throw new NotImplementedException();
     }
 }
 

@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "图层混合",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "多图层混合工具",
     Version = "2.0",
     Category = "图像处理",

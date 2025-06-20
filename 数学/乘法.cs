@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "乘法",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "图像乘法运算：支持图像与常量或图像与图像的乘法运算，可设置偏移",
     Version = "1.0",
     Category = "数学",
@@ -33,8 +33,8 @@ public class MultiplicationScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像"),
-            ["constant"] = new PortDefinition("constant", true, "常量或第二张图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像"),
+            ["constant"] = new PortDefinition("constant", false, "常量或第二张图像")
         };
     }
 
@@ -250,111 +250,58 @@ public class MultiplicationScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as MultiplicationViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "图像乘法",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "乘法设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
-
-        // 10bit缩放选项
-        var scalingCheckBox = new CheckBox
-        {
-            Content = "启用10bit数值缩放(0-1023)",
-            Margin = new Thickness(5, 10, 5, 5),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        var scalingBinding = new Binding(nameof(Enable10BitScaling))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        scalingCheckBox.SetBinding(CheckBox.IsCheckedProperty, scalingBinding);
+        
+        // 10-bit Scaling CheckBox
+        var scalingCheckBox = new CheckBox { Content = "启用10bit数值缩放", Margin = new Thickness(0, 5, 0, 10) };
+        if(resources.Contains("DefaultCheckBoxStyle")) scalingCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        scalingCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.Enable10BitScaling)) { Mode = BindingMode.TwoWay });
         mainPanel.Children.Add(scalingCheckBox);
 
-        // X偏移滑块
-        var xOffsetLabel = new Label
-        {
-            Content = "X偏移:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(xOffsetLabel);
+        // X Offset
+        var offsetXLabel = new Label { Content = "X偏移:" };
+        if(resources.Contains("DefaultLabelStyle")) offsetXLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(offsetXLabel);
+        
+        var offsetXTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
+        if(resources.Contains("DefaultTextBoxStyle")) offsetXTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        offsetXTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.OffsetX)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(offsetXTextBox);
 
-        var xOffsetSlider = new Slider
-        {
-            Minimum = -1000,
-            Maximum = 1000,
-            TickFrequency = 100,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 5)
-        };
+        // Y Offset
+        var offsetYLabel = new Label { Content = "Y偏移:" };
+        if(resources.Contains("DefaultLabelStyle")) offsetYLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(offsetYLabel);
 
-        var xOffsetBinding = new Binding(nameof(OffsetX))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        xOffsetSlider.SetBinding(Slider.ValueProperty, xOffsetBinding);
-        mainPanel.Children.Add(xOffsetSlider);
-
-        // Y偏移滑块
-        var yOffsetLabel = new Label
-        {
-            Content = "Y偏移:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(yOffsetLabel);
-
-        var yOffsetSlider = new Slider
-        {
-            Minimum = -1000,
-            Maximum = 1000,
-            TickFrequency = 100,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 10)
-        };
-
-        var yOffsetBinding = new Binding(nameof(OffsetY))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        yOffsetSlider.SetBinding(Slider.ValueProperty, yOffsetBinding);
-        mainPanel.Children.Add(yOffsetSlider);
+        var offsetYTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
+        if(resources.Contains("DefaultTextBoxStyle")) offsetYTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        offsetYTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.OffsetY)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(offsetYTextBox);
 
         return mainPanel;
     }

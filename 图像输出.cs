@@ -11,7 +11,7 @@ using Microsoft.Win32;
 
 [RevivalScript(
     Name = "图像输出",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "将图像保存到文件",
     Version = "1.0",
     Category = "输入输出",
@@ -164,220 +164,116 @@ public class ImageOutputScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建并设置ViewModel作为DataContext
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
         var viewModel = CreateViewModel() as ImageOutputViewModel;
         mainPanel.DataContext = viewModel;
 
-        // 标题
-        var titleLabel = new Label
-        {
-            Content = "图像输出设置",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "图像输出设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 输出路径设置
-        CreateSavePathControls(mainPanel, viewModel);
-
-        // 质量设置
-        CreateQualityControls(mainPanel, viewModel);
-
-        // 自动保存设置
-        CreateAutoSaveControls(mainPanel, viewModel);
-
-        // Alpha通道保存设置
-        CreateSaveAlphaControls(mainPanel, viewModel);
+        CreateSavePathControls(mainPanel, viewModel, resources);
+        CreateQualityControls(mainPanel, viewModel, resources);
+        CreateAutoSaveControls(mainPanel, viewModel, resources);
+        CreateSaveAlphaControls(mainPanel, viewModel, resources);
 
         return mainPanel;
     }
 
-    private void CreateSavePathControls(StackPanel parent, ImageOutputViewModel viewModel)
+    private void CreateSavePathControls(StackPanel parent, ImageOutputViewModel viewModel, ResourceDictionary resources)
     {
-        var pathLabel = new Label
-        {
-            Content = "保存路径:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+        var pathLabel = new Label { Content = "保存路径:" };
+        if (resources.Contains("DefaultLabelStyle")) pathLabel.Style = resources["DefaultLabelStyle"] as Style;
         parent.Children.Add(pathLabel);
 
         var pathPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
 
-        var selectButton = new Button
+        var selectButton = new Button { Content = "选择...", Width = 60, Margin = new Thickness(5, 0, 0, 0) };
+        if (resources.Contains("SelectFileScriptButtonStyle")) selectButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
+        
+        selectButton.Click += (s, e) =>
         {
-            Content = "选择...",
-            Width = 60,
-            Margin = new Thickness(5, 0, 0, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
+            var saveFileDialog = new SaveFileDialog
+            {
+                Filter = "PNG Image|*.png|JPEG Image|*.jpg|TIFF Image|*.tiff|All files|*.*",
+                FileName = viewModel.SavePath
+            };
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                viewModel.SavePath = saveFileDialog.FileName;
+            }
         };
         DockPanel.SetDock(selectButton, Dock.Right);
 
-        var pathTextBox = new TextBox
-        {
-            Margin = new Thickness(0),
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F0F0")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#333333")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28")),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6, 4, 6, 4),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        // 使用数据绑定将TextBox的Text属性绑定到ViewModel的SavePath属性
-        var pathBinding = new System.Windows.Data.Binding("SavePath")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.OneWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        pathTextBox.SetBinding(TextBox.TextProperty, pathBinding);
-
-        selectButton.Click += (s, e) =>
-        {
-            var dialog = new SaveFileDialog
-            {
-                Filter = "JPEG文件|*.jpg|PNG文件|*.png|BMP文件|*.bmp|TIFF文件|*.tiff|所有文件|*.*",
-                Title = "选择保存路径",
-                DefaultExt = ".jpg"
-            };
-
-            if (!string.IsNullOrEmpty(viewModel.SavePath))
-            {
-                dialog.InitialDirectory = System.IO.Path.GetDirectoryName(viewModel.SavePath);
-                dialog.FileName = System.IO.Path.GetFileName(viewModel.SavePath);
-            }
-
-            if (dialog.ShowDialog() == true)
-            {
-                // 通过ViewModel设置，会自动触发UI更新和参数变化事件
-                viewModel.SavePath = dialog.FileName;
-            }
-        };
-
-        pathPanel.Children.Add(pathTextBox);
+        var pathTextBox = new TextBox { Margin = new Thickness(0) };
+        if (resources.Contains("DefaultTextBoxStyle")) pathTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        pathTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.SavePath)) { Mode = BindingMode.TwoWay });
+        
         pathPanel.Children.Add(selectButton);
+        pathPanel.Children.Add(pathTextBox);
         parent.Children.Add(pathPanel);
     }
 
-    private void CreateQualityControls(StackPanel parent, ImageOutputViewModel viewModel)
+    private void CreateQualityControls(StackPanel parent, ImageOutputViewModel viewModel, ResourceDictionary resources)
     {
-        var qualityLabel = new Label
-        {
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        // 使用数据绑定将Label的Content绑定到ViewModel的QualityText属性
-        var labelBinding = new System.Windows.Data.Binding("QualityText")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.OneWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        qualityLabel.SetBinding(Label.ContentProperty, labelBinding);
-
+        var qualityLabel = new Label();
+        if (resources.Contains("DefaultLabelStyle")) qualityLabel.Style = resources["DefaultLabelStyle"] as Style;
+        
+        var qualityBinding = new Binding(nameof(viewModel.QualityText)) { Source = viewModel };
+        qualityLabel.SetBinding(ContentControl.ContentProperty, qualityBinding);
         parent.Children.Add(qualityLabel);
 
         var qualitySlider = new Slider
         {
             Minimum = 1,
             Maximum = 100,
-            Margin = new Thickness(0, 0, 0, 10),
-            TickFrequency = 10,
-            TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF"))
+            Margin = new Thickness(0, 0, 0, 10)
         };
-
-        // 使用数据绑定将Slider的Value绑定到ViewModel的Quality属性
-        var sliderBinding = new System.Windows.Data.Binding("Quality")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.TwoWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        qualitySlider.SetBinding(Slider.ValueProperty, sliderBinding);
-
+        if (resources.Contains("DefaultSliderStyle")) qualitySlider.Style = resources["DefaultSliderStyle"] as Style;
+        qualitySlider.SetBinding(Slider.ValueProperty, new Binding(nameof(viewModel.Quality)) { Mode = BindingMode.TwoWay });
         parent.Children.Add(qualitySlider);
     }
 
-    private void CreateAutoSaveControls(StackPanel parent, ImageOutputViewModel viewModel)
+    private void CreateAutoSaveControls(StackPanel parent, ImageOutputViewModel viewModel, ResourceDictionary resources)
     {
         var autoSaveCheckBox = new CheckBox
         {
-            Content = "处理时自动保存",
-            Margin = new Thickness(0, 0, 0, 10),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Content = "自动保存",
+            Margin = new Thickness(0, 5, 0, 10)
         };
-
-        // 使用数据绑定将CheckBox的IsChecked绑定到ViewModel的AutoSave属性
-        var checkBinding = new System.Windows.Data.Binding("AutoSave")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.TwoWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        autoSaveCheckBox.SetBinding(CheckBox.IsCheckedProperty, checkBinding);
-
+        if (resources.Contains("DefaultCheckBoxStyle")) autoSaveCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        autoSaveCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.AutoSave)) { Mode = BindingMode.TwoWay });
         parent.Children.Add(autoSaveCheckBox);
     }
 
-    private void CreateSaveAlphaControls(StackPanel parent, ImageOutputViewModel viewModel)
+    private void CreateSaveAlphaControls(StackPanel parent, ImageOutputViewModel viewModel, ResourceDictionary resources)
     {
         var saveAlphaCheckBox = new CheckBox
         {
-            Content = "保存透明度通道（PNG/TIFF）",
-            Margin = new Thickness(0, 0, 0, 10),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Content = "保存Alpha通道 (PNG/TIFF)",
+            Margin = new Thickness(0, 0, 0, 10)
         };
-
-        // 使用数据绑定将CheckBox的IsChecked绑定到ViewModel的SaveAlpha属性
-        var checkBinding = new System.Windows.Data.Binding("SaveAlpha")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.TwoWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
-        saveAlphaCheckBox.SetBinding(CheckBox.IsCheckedProperty, checkBinding);
-
+        if (resources.Contains("DefaultCheckBoxStyle")) saveAlphaCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        saveAlphaCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.SaveAlpha)) { Mode = BindingMode.TwoWay });
         parent.Children.Add(saveAlphaCheckBox);
     }
 

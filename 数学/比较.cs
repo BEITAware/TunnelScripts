@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "比较",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "逐像素比较两张图像，RGB通道独立比较",
     Version = "1.0",
     Category = "数学",
@@ -36,8 +36,8 @@ public class ComparisonScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "第一张图像"),
-            ["f32bmp2"] = new PortDefinition("f32bmp", true, "第二张图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "第一张图像"),
+            ["f32bmp2"] = new PortDefinition("f32bmp", false, "第二张图像")
         };
     }
 
@@ -261,157 +261,86 @@ public class ComparisonScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as ComparisonViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "图像比较",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "比较设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 比较类型下拉框
-        var comparisonLabel = new Label
-        {
-            Content = "比较类型:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(comparisonLabel);
+        // 比较类型
+        var typeLabel = new Label { Content = "比较类型:", Margin = new Thickness(0, 5, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) typeLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(typeLabel);
 
-        var comparisonComboBox = new ComboBox
+        var typeComboBox = new ComboBox
         {
-            Margin = new Thickness(5, 0, 5, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2D3748")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF4A5568"))
+            Margin = new Thickness(0, 0, 0, 10),
+            ItemsSource = new List<string> { "大于", "等于", "小于", "大于等于", "小于等于", "不等于" }
         };
+        if(resources.Contains("DefaultComboBoxStyle")) typeComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        typeComboBox.SetBinding(ComboBox.SelectedItemProperty, new Binding(nameof(viewModel.ComparisonType)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(typeComboBox);
+        
+        // X Offset
+        var offsetXLabel = new Label { Content = "X偏移:" };
+        if(resources.Contains("DefaultLabelStyle")) offsetXLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(offsetXLabel);
+        
+        var offsetXTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
+        if(resources.Contains("DefaultTextBoxStyle")) offsetXTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        offsetXTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.OffsetX)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(offsetXTextBox);
 
-        comparisonComboBox.Items.Add("大于");
-        comparisonComboBox.Items.Add("等于");
-        comparisonComboBox.Items.Add("小于");
-        comparisonComboBox.Items.Add("大于等于");
-        comparisonComboBox.Items.Add("小于等于");
-        comparisonComboBox.Items.Add("不等于");
+        // Y Offset
+        var offsetYLabel = new Label { Content = "Y偏移:" };
+        if(resources.Contains("DefaultLabelStyle")) offsetYLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(offsetYLabel);
 
-        var comparisonBinding = new Binding(nameof(ComparisonType))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        comparisonComboBox.SetBinding(ComboBox.SelectedItemProperty, comparisonBinding);
-        mainPanel.Children.Add(comparisonComboBox);
-
-        // X偏移滑块
-        var xOffsetLabel = new Label
-        {
-            Content = "X偏移:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(xOffsetLabel);
-
-        var xOffsetSlider = new Slider
-        {
-            Minimum = -1000,
-            Maximum = 1000,
-            TickFrequency = 100,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 5)
-        };
-
-        var xOffsetBinding = new Binding(nameof(OffsetX))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        xOffsetSlider.SetBinding(Slider.ValueProperty, xOffsetBinding);
-        mainPanel.Children.Add(xOffsetSlider);
-
-        // Y偏移滑块
-        var yOffsetLabel = new Label
-        {
-            Content = "Y偏移:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(yOffsetLabel);
-
-        var yOffsetSlider = new Slider
-        {
-            Minimum = -1000,
-            Maximum = 1000,
-            TickFrequency = 100,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 5)
-        };
-
-        var yOffsetBinding = new Binding(nameof(OffsetY))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        yOffsetSlider.SetBinding(Slider.ValueProperty, yOffsetBinding);
-        mainPanel.Children.Add(yOffsetSlider);
-
-        // 容差阈值滑块
-        var thresholdLabel = new Label
-        {
-            Content = "容差阈值:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
+        var offsetYTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
+        if(resources.Contains("DefaultTextBoxStyle")) offsetYTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        offsetYTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.OffsetY)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(offsetYTextBox);
+        
+        // Threshold
+        var thresholdLabel = new Label { Content = $"容差阈值: {viewModel.Threshold:F3}" };
+        if(resources.Contains("DefaultLabelStyle")) thresholdLabel.Style = resources["DefaultLabelStyle"] as Style;
         mainPanel.Children.Add(thresholdLabel);
 
         var thresholdSlider = new Slider
         {
-            Minimum = 0.0,
-            Maximum = 0.1,
-            TickFrequency = 0.001,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 10)
+            Minimum = 0,
+            Maximum = 1,
+            Margin = new Thickness(0, 0, 0, 10)
         };
-
-        var thresholdBinding = new Binding(nameof(Threshold))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
+        if(resources.Contains("DefaultSliderStyle")) thresholdSlider.Style = resources["DefaultSliderStyle"] as Style;
+        var thresholdBinding = new Binding(nameof(viewModel.Threshold)) { Mode = BindingMode.TwoWay };
         thresholdSlider.SetBinding(Slider.ValueProperty, thresholdBinding);
+        thresholdSlider.ValueChanged += (s, e) =>
+        {
+            thresholdLabel.Content = $"容差阈值: {e.NewValue:F3}";
+        };
         mainPanel.Children.Add(thresholdSlider);
 
         return mainPanel;

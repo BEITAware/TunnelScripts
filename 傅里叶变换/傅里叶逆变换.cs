@@ -23,7 +23,7 @@ public enum ReconstructionQuality
 
 [RevivalScript(
     Name = "傅里叶逆变换",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "傅里叶逆变换 - 从幅度谱和相位谱重建原始图像，支持RGBA格式",
     Version = "1.0",
     Category = "频域处理",
@@ -675,187 +675,168 @@ public class InverseFourierTransformScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ExpanderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml"
+        };
 
-        // 创建ViewModel
+        foreach (var path in resourcePaths)
+        {
+            try
+            {
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"资源加载失败: {path} - {ex.Message}");
+            }
+        }
+        
+        if (resources.Contains("Layer_2"))
+        {
+            mainPanel.Background = resources["Layer_2"] as Brush;
+        }
+
         var viewModel = CreateViewModel() as InverseFourierTransformViewModel;
         mainPanel.DataContext = viewModel;
 
-        // 标题
         var titleLabel = new Label
         {
-            Content = "傅里叶逆变换",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
+            Content = "傅里叶逆变换设置",
         };
+        if (resources.Contains("TitleLabelStyle"))
+        {
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleLabel);
 
-        // 创建复选框控件
-        mainPanel.Children.Add(CreateCheckBoxControl("自动检测参数", nameof(AutoDetectParameters), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("应用了对数变换", nameof(WasLogTransformed), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("零频率已居中", nameof(WasCentered), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("应用了汉宁窗", nameof(WasWindowed), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("增强了相位谱对比度", nameof(WasPhaseEnhanced), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("变换了Alpha通道", nameof(WasAlphaTransformed), viewModel));
+        // 自动检测参数
+        mainPanel.Children.Add(CreateBindingCheckBox("自动检测参数", "AutoDetectParameters", viewModel, resources));
 
-        // 重建质量选择
-        var qualityPanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var qualityLabel = new Label
+        // 手动参数区域
+        var manualParamsExpander = new Expander
         {
-            Content = "重建质量:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 0, 5, 0)
+            Header = "手动参数设置",
+            IsExpanded = !viewModel.AutoDetectParameters,
+            Margin = new Thickness(0, 5, 0, 0)
         };
-        qualityPanel.Children.Add(qualityLabel);
+        if (resources.Contains("DefaultExpanderStyle"))
+        {
+            manualParamsExpander.Style = resources["DefaultExpanderStyle"] as Style;
+        }
 
+        var manualParamsPanel = new StackPanel { Margin = new Thickness(15, 0, 0, 0) };
+        manualParamsPanel.Children.Add(CreateBindingCheckBox("应用了对数变换", "WasLogTransformed", viewModel, resources));
+        manualParamsPanel.Children.Add(CreateBindingCheckBox("零频率已居中", "WasCentered", viewModel, resources));
+        manualParamsPanel.Children.Add(CreateBindingCheckBox("应用了汉宁窗", "WasWindowed", viewModel, resources));
+        manualParamsPanel.Children.Add(CreateBindingCheckBox("增强了相位谱对比度", "WasPhaseEnhanced", viewModel, resources));
+        manualParamsPanel.Children.Add(CreateBindingCheckBox("变换了Alpha通道", "WasAlphaTransformed", viewModel, resources));
+        manualParamsExpander.Content = manualParamsPanel;
+        
+        // 绑定Expander的IsExpanded到!AutoDetectParameters
+        var expanderBinding = new Binding("AutoDetectParameters")
+        {
+            Source = viewModel,
+            Converter = new InvertBooleanConverter()
+        };
+        manualParamsExpander.SetBinding(Expander.IsExpandedProperty, expanderBinding);
+        
+        mainPanel.Children.Add(manualParamsExpander);
+
+        // 重建质量
+        manualParamsPanel.Children.Add(CreateLabel("重建质量:", resources));
         var qualityComboBox = new ComboBox
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            ItemsSource = Enum.GetValues(typeof(ReconstructionQuality)),
+            Margin = new Thickness(0, 2, 0, 10)
         };
-        qualityComboBox.Items.Add("Low");
-        qualityComboBox.Items.Add("Medium");
-        qualityComboBox.Items.Add("High");
-        qualityComboBox.Items.Add("Ultra");
-
-        var qualityBinding = new Binding(nameof(Quality))
+        if (resources.Contains("DefaultComboBoxStyle"))
         {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        qualityComboBox.SetBinding(ComboBox.SelectedItemProperty, qualityBinding);
-        qualityPanel.Children.Add(qualityComboBox);
-        mainPanel.Children.Add(qualityPanel);
+            qualityComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        }
+        qualityComboBox.SetBinding(ComboBox.SelectedItemProperty, new Binding("Quality") { Source = viewModel, Mode = BindingMode.TwoWay });
+        manualParamsPanel.Children.Add(qualityComboBox);
 
         // 幅度缩放因子
-        var scalePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var scaleLabel = new Label
+        manualParamsPanel.Children.Add(CreateLabel("幅度缩放因子:", resources));
+        var scaleSlider = new Slider
         {
-            Content = "幅度缩放因子:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 0, 5, 0)
+            Minimum = 0.1,
+            Maximum = 5.0,
+            SmallChange = 0.1,
+            LargeChange = 0.5,
+            Margin = new Thickness(0, 2, 0, 10)
         };
-        scalePanel.Children.Add(scaleLabel);
-
-        var scaleTextBox = new TextBox
+        if (resources.Contains("DefaultSliderStyle"))
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2D3748")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF4A5568"))
-        };
+            scaleSlider.Style = resources["DefaultSliderStyle"] as Style;
+        }
+        scaleSlider.SetBinding(Slider.ValueProperty, new Binding("MagnitudeScale") { Source = viewModel, Mode = BindingMode.TwoWay });
+        manualParamsPanel.Children.Add(scaleSlider);
 
-        var scaleBinding = new Binding(nameof(MagnitudeScale))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        scaleTextBox.SetBinding(TextBox.TextProperty, scaleBinding);
-        scalePanel.Children.Add(scaleTextBox);
-        mainPanel.Children.Add(scalePanel);
+        // 操作按钮
+        var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
 
-        // 自动检测按钮
         var detectButton = new Button
         {
             Content = "重新检测参数",
-            Margin = new Thickness(2, 10, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
+            Margin = new Thickness(0, 0, 5, 0)
         };
-
-        detectButton.Click += (s, e) =>
+        if (resources.Contains("ScriptButtonStyle"))
         {
-            viewModel?.ForceDetectParameters();
-        };
+            detectButton.Style = resources["ScriptButtonStyle"] as Style;
+        }
+        detectButton.Click += (s, e) => viewModel?.ForceDetectParameters();
+        buttonPanel.Children.Add(detectButton);
 
-        mainPanel.Children.Add(detectButton);
-
-        // 重置按钮
         var resetButton = new Button
         {
-            Content = "重置所有参数",
-            Margin = new Thickness(2, 5, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
+            Content = "重置所有参数"
         };
-
-        resetButton.Click += (s, e) =>
+        if (resources.Contains("ScriptButtonStyle"))
         {
-            viewModel?.ResetToDefault();
-        };
+            resetButton.Style = resources["ScriptButtonStyle"] as Style;
+        }
+        resetButton.Click += async (s, e) => await viewModel?.ResetToDefault();
+        buttonPanel.Children.Add(resetButton);
 
-        mainPanel.Children.Add(resetButton);
+        mainPanel.Children.Add(buttonPanel);
 
         return mainPanel;
     }
 
-    private StackPanel CreateCheckBoxControl(string label, string propertyName, InverseFourierTransformViewModel viewModel)
+    private Label CreateLabel(string content, ResourceDictionary resources)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
+        var label = new Label { Content = content };
+        if (resources.Contains("DefaultLabelStyle"))
+        {
+            label.Style = resources["DefaultLabelStyle"] as Style;
+        }
+        return label;
+    }
 
+    private CheckBox CreateBindingCheckBox(string content, string propertyName, object viewModel, ResourceDictionary resources)
+    {
         var checkBox = new CheckBox
         {
-            Content = label,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 0, 5, 0)
+            Content = content,
+            Margin = new Thickness(0, 5, 0, 5),
         };
 
-        // 数据绑定
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            checkBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
+
         var binding = new Binding(propertyName)
         {
             Source = viewModel,
@@ -864,8 +845,7 @@ public class InverseFourierTransformScript : RevivalScriptBase
         };
         checkBox.SetBinding(CheckBox.IsCheckedProperty, binding);
 
-        panel.Children.Add(checkBox);
-        return panel;
+        return checkBox;
     }
 
     public override IScriptViewModel CreateViewModel()
@@ -919,32 +899,68 @@ public class InverseFourierTransformScript : RevivalScriptBase
 
     public void InitializeNodeInstance(string nodeId)
     {
-        if (!string.IsNullOrEmpty(nodeId))
-        {
-            NodeInstanceId = nodeId;
-        }
+        NodeInstanceId = nodeId;
     }
 
     /// <summary>
-    /// 强制重新检测参数（从已存储的元数据）
+    /// 强制从元数据中检测参数
     /// </summary>
     public void ForceParameterDetection()
     {
-        if (_extractedMetadata.Count > 0)
+        // 确保元数据已提取
+        if (_extractedMetadata != null && _extractedMetadata.Count > 0)
         {
             DetectParametersFromMetadata();
-            System.Diagnostics.Debug.WriteLine($"[傅里叶逆变换] 强制重新检测参数完成");
+
+            // 手动触发ViewModel更新，确保UI反映变化
+            if (CreateViewModel() is InverseFourierTransformViewModel viewModel)
+            {
+                viewModel.RaiseAllPropertiesChanged();
+            }
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine($"[傅里叶逆变换] 没有可用的元数据进行参数检测");
+            System.Diagnostics.Debug.WriteLine("[傅里叶逆变换] 没有可用的元数据来强制检测。");
         }
+    }
+}
+
+public class InvertBooleanConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is bool)
+        {
+            return !(bool)value;
+        }
+        return value;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is bool)
+        {
+            return !(bool)value;
+        }
+        return value;
     }
 }
 
 public class InverseFourierTransformViewModel : ScriptViewModelBase
 {
     private InverseFourierTransformScript InverseFourierTransformScript => (InverseFourierTransformScript)Script;
+
+    public void RaiseAllPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(AutoDetectParameters));
+        OnPropertyChanged(nameof(WasLogTransformed));
+        OnPropertyChanged(nameof(WasCentered));
+        OnPropertyChanged(nameof(WasWindowed));
+        OnPropertyChanged(nameof(WasPhaseEnhanced));
+        OnPropertyChanged(nameof(WasAlphaTransformed));
+        OnPropertyChanged(nameof(Quality));
+        OnPropertyChanged(nameof(MagnitudeScale));
+    }
 
     public bool AutoDetectParameters
     {

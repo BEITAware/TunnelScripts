@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "Alpha通道处理",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "处理图像的Alpha透明度通道",
     Version = "1.0",
     Category = "图像处理",
@@ -158,63 +158,73 @@ public class AlphaChannelScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml"
+        };
+
+        foreach (var path in resourcePaths)
+        {
+            try
             {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+            }
+            catch (Exception)
+            {
+                // 静默处理资源加载失败
+            }
+        }
+
+        // 应用主面板样式
+        if (resources.Contains("MainPanelStyle"))
+        {
+            mainPanel.Style = resources["MainPanelStyle"] as Style;
+        }
 
         var viewModel = CreateViewModel() as AlphaChannelViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
+        var titleLabel = new Label { Content = "Alpha通道处理" };
+        if (resources.Contains("TitleLabelStyle"))
         {
-            Content = "Alpha通道处理",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleLabel);
 
         // 操作类型选择
-        CreateOperationControls(mainPanel, viewModel);
+        CreateOperationControls(mainPanel, viewModel, resources);
 
         // Alpha值控制
-        CreateAlphaValueControls(mainPanel, viewModel);
+        CreateAlphaValueControls(mainPanel, viewModel, resources);
 
         // 反转Alpha选项
-        CreateInvertAlphaControls(mainPanel, viewModel);
+        CreateInvertAlphaControls(mainPanel, viewModel, resources);
 
         return mainPanel;
     }
 
-    private void CreateOperationControls(StackPanel parent, AlphaChannelViewModel viewModel)
+    private void CreateOperationControls(StackPanel parent, AlphaChannelViewModel viewModel, ResourceDictionary resources)
     {
-        var operationLabel = new Label
+        var operationLabel = new Label { Content = "操作类型:" };
+        if (resources.Contains("DefaultLabelStyle"))
         {
-            Content = "操作类型:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+            operationLabel.Style = resources["DefaultLabelStyle"] as Style;
+        }
         parent.Children.Add(operationLabel);
 
-        var operationComboBox = new ComboBox
+        var operationComboBox = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
+        if (resources.Contains("DefaultComboBoxStyle"))
         {
-            Margin = new Thickness(0, 0, 0, 10),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+            operationComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        }
 
         operationComboBox.Items.Add("调整透明度");
         operationComboBox.Items.Add("设置透明度");
@@ -232,20 +242,18 @@ public class AlphaChannelScript : RevivalScriptBase
         parent.Children.Add(operationComboBox);
     }
 
-    private void CreateAlphaValueControls(StackPanel parent, AlphaChannelViewModel viewModel)
+    private void CreateAlphaValueControls(StackPanel parent, AlphaChannelViewModel viewModel, ResourceDictionary resources)
     {
-        var alphaLabel = new Label
+        var alphaLabel = new Label();
+        if (resources.Contains("DefaultLabelStyle"))
         {
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+            alphaLabel.Style = resources["DefaultLabelStyle"] as Style;
+        }
 
         var labelBinding = new System.Windows.Data.Binding("AlphaValueText")
         {
             Source = viewModel,
             Mode = System.Windows.Data.BindingMode.OneWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
         };
         alphaLabel.SetBinding(Label.ContentProperty, labelBinding);
 
@@ -253,13 +261,18 @@ public class AlphaChannelScript : RevivalScriptBase
 
         var alphaSlider = new Slider
         {
+            Margin = new Thickness(0, 0, 0, 10),
             Minimum = 0.0,
             Maximum = 1.0,
-            Margin = new Thickness(0, 0, 0, 10),
-            TickFrequency = 0.1,
-            TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF"))
+            Value = viewModel.AlphaValue,
+            LargeChange = 0.1,
+            SmallChange = 0.01
         };
+
+        if (resources.Contains("DefaultSliderStyle")) // Assuming a style key exists
+        {
+            alphaSlider.Style = resources["DefaultSliderStyle"] as Style;
+        }
 
         var sliderBinding = new System.Windows.Data.Binding("AlphaValue")
         {
@@ -272,25 +285,21 @@ public class AlphaChannelScript : RevivalScriptBase
         parent.Children.Add(alphaSlider);
     }
 
-    private void CreateInvertAlphaControls(StackPanel parent, AlphaChannelViewModel viewModel)
+    private void CreateInvertAlphaControls(StackPanel parent, AlphaChannelViewModel viewModel, ResourceDictionary resources)
     {
-        var invertCheckBox = new CheckBox
+        var invertCheckBox = new CheckBox { Content = "反转Alpha通道" };
+        if (resources.Contains("DefaultCheckBoxStyle"))
         {
-            Content = "反转Alpha通道",
-            Margin = new Thickness(0, 0, 0, 10),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        var checkBinding = new System.Windows.Data.Binding("InvertAlpha")
+            invertCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
+        
+        var invertBinding = new System.Windows.Data.Binding("InvertAlpha")
         {
             Source = viewModel,
             Mode = System.Windows.Data.BindingMode.TwoWay,
             UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
         };
-        invertCheckBox.SetBinding(CheckBox.IsCheckedProperty, checkBinding);
-
+        invertCheckBox.SetBinding(CheckBox.IsCheckedProperty, invertBinding);
         parent.Children.Add(invertCheckBox);
     }
 

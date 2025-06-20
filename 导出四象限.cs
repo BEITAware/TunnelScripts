@@ -11,7 +11,7 @@ using Tunnel_Next.Services.Scripting;
 
 [RevivalScript(
     Name = "导出四象限",
-    Author = "Tunnel Team",
+    Author = "BEITAware",
     Description = "将输入图像分割为四个象限并导出，支持预览和自定义导出设置",
     Version = "1.0.0",
     Category = "导出",
@@ -195,217 +195,131 @@ public class ExportQuadrantsScript : RevivalScriptBase
     public override FrameworkElement CreateParameterControl()
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5, 5, 5, 5) };
+        
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
 
-        // 创建并设置ViewModel作为DataContext
         var viewModel = CreateViewModel() as ExportQuadrantsViewModel;
         mainPanel.DataContext = viewModel;
 
-        // 标题
-        var titleLabel = new Label
-        {
-            Content = "四象限导出设置",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "四象限导出设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 导出目录设置
-        var dirPanel = CreateDirectoryPanel(viewModel);
-        mainPanel.Children.Add(dirPanel);
-
-        // 文件名前缀设置
-        var prefixPanel = CreatePrefixPanel(viewModel);
-        mainPanel.Children.Add(prefixPanel);
-
-        // 网格设置
-        var gridPanel = CreateGridPanel(viewModel);
-        mainPanel.Children.Add(gridPanel);
-
-        // 操作按钮
-        var buttonPanel = CreateButtonPanel(viewModel);
-        mainPanel.Children.Add(buttonPanel);
+        mainPanel.Children.Add(CreateDirectoryPanel(viewModel, resources));
+        mainPanel.Children.Add(CreatePrefixPanel(viewModel, resources));
+        mainPanel.Children.Add(CreateGridPanel(viewModel, resources));
+        mainPanel.Children.Add(CreateButtonPanel(viewModel, resources));
 
         return mainPanel;
     }
 
-    private StackPanel CreateDirectoryPanel(ExportQuadrantsViewModel viewModel)
+    private FrameworkElement CreateDirectoryPanel(ExportQuadrantsViewModel viewModel, ResourceDictionary resources)
     {
         var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 10, 0, 0) };
 
-        var label = new Label
-        {
-            Content = "导出目录:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+        var label = new Label { Content = "导出目录:" };
+        if (resources.Contains("DefaultLabelStyle")) label.Style = resources["DefaultLabelStyle"] as Style;
         panel.Children.Add(label);
 
-        var dirPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        // 使用designs资源样式的文本框 - 基于TextBoxBasic设计
-        var textBox = new TextBox
-        {
-            Width = 200,
-            Margin = new Thickness(0, 0, 5, 0),
-            Text = ExportDirectory,
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FFFFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FFB3BBBC"), 1)
-                },
-                new System.Windows.Point(0.5, 1.72875), new System.Windows.Point(0.5, -0.728735)
-            ),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2E5C8A")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1, 1, 1, 1),
-            Padding = new Thickness(6, 4, 6, 4),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        textBox.TextChanged += (s, e) => viewModel.ExportDirectory = textBox.Text;
+        var textBox = new TextBox { Margin = new Thickness(0, 0, 5, 0) };
+        if (resources.Contains("DefaultTextBoxStyle")) textBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        textBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(viewModel.ExportDirectory)) { Mode = System.Windows.Data.BindingMode.TwoWay });
+        Grid.SetColumn(textBox, 0);
+        grid.Children.Add(textBox);
 
-        var browseButton = CreateStyledButton("浏览...", 60);
+        var browseButton = new Button { Content = "浏览..." };
+        if (resources.Contains("SelectFileScriptButtonStyle")) browseButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
         browseButton.Click += (s, e) => BrowseDirectory(textBox, viewModel);
-
-        dirPanel.Children.Add(textBox);
-        dirPanel.Children.Add(browseButton);
-        panel.Children.Add(dirPanel);
-
+        Grid.SetColumn(browseButton, 1);
+        grid.Children.Add(grid);
+        
+        panel.Children.Add(grid);
         return panel;
     }
 
-    private StackPanel CreatePrefixPanel(ExportQuadrantsViewModel viewModel)
+    private FrameworkElement CreatePrefixPanel(ExportQuadrantsViewModel viewModel, ResourceDictionary resources)
     {
         var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 10, 0, 0) };
 
-        var label = new Label
-        {
-            Content = "文件名前缀:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+        var label = new Label { Content = "文件名前缀:" };
+        if (resources.Contains("DefaultLabelStyle")) label.Style = resources["DefaultLabelStyle"] as Style;
         panel.Children.Add(label);
 
-        // 使用designs资源样式的文本框 - 基于TextBoxBasic设计
-        var textBox = new TextBox
-        {
-            Width = 200,
-            Text = FilenamePrefix,
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FFFFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FFB3BBBC"), 1)
-                },
-                new System.Windows.Point(0.5, 1.72875), new System.Windows.Point(0.5, -0.728735)
-            ),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2E5C8A")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1, 1, 1, 1),
-            Padding = new Thickness(6, 4, 6, 4),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        textBox.TextChanged += (s, e) => viewModel.FilenamePrefix = textBox.Text;
-
+        var textBox = new TextBox();
+        if (resources.Contains("DefaultTextBoxStyle")) textBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        textBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(viewModel.FilenamePrefix)) { Mode = System.Windows.Data.BindingMode.TwoWay });
         panel.Children.Add(textBox);
+
         return panel;
     }
 
-    private StackPanel CreateGridPanel(ExportQuadrantsViewModel viewModel)
+    private FrameworkElement CreateGridPanel(ExportQuadrantsViewModel viewModel, ResourceDictionary resources)
     {
         var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 10, 0, 0) };
 
-        var titleLabel = new Label
-        {
-            Content = "网格设置:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            FontWeight = FontWeights.SemiBold
-        };
-        panel.Children.Add(titleLabel);
-
-        // 显示网格线复选框
-        var showGridCheckBox = new CheckBox
-        {
-            Content = "显示网格线",
-            IsChecked = ShowGrid,
-            Margin = new Thickness(0, 5, 0, 0),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        showGridCheckBox.Checked += (s, e) => { viewModel.ShowGrid = true; };
-        showGridCheckBox.Unchecked += (s, e) => { viewModel.ShowGrid = false; };
-
+        var showGridCheckBox = new CheckBox { Content = "显示网格线" };
+        if(resources.Contains("DefaultCheckBoxStyle")) showGridCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        showGridCheckBox.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding(nameof(viewModel.ShowGrid)) { Mode = System.Windows.Data.BindingMode.TwoWay });
         panel.Children.Add(showGridCheckBox);
+
+        var thicknessLabel = new Label { Content = "网格线粗细:" };
+        if (resources.Contains("DefaultLabelStyle")) thicknessLabel.Style = resources["DefaultLabelStyle"] as Style;
+        panel.Children.Add(thicknessLabel);
+
+        var thicknessSlider = new Slider { Minimum = 1, Maximum = 10 };
+        if(resources.Contains("DefaultSliderStyle")) thicknessSlider.Style = resources["DefaultSliderStyle"] as Style;
+        thicknessSlider.SetBinding(Slider.ValueProperty, new System.Windows.Data.Binding(nameof(viewModel.GridThickness)) { Mode = System.Windows.Data.BindingMode.TwoWay });
+        panel.Children.Add(thicknessSlider);
+
+        var colorLabel = new Label { Content = "网格线颜色:" };
+        if (resources.Contains("DefaultLabelStyle")) colorLabel.Style = resources["DefaultLabelStyle"] as Style;
+        panel.Children.Add(colorLabel);
+
+        var colorComboBox = new ComboBox { ItemsSource = _colorMap.Keys };
+        if(resources.Contains("DefaultComboBoxStyle")) colorComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        colorComboBox.SetBinding(ComboBox.SelectedItemProperty, new System.Windows.Data.Binding(nameof(viewModel.GridColor)) { Mode = System.Windows.Data.BindingMode.TwoWay });
+        panel.Children.Add(colorComboBox);
+
         return panel;
     }
 
-    private StackPanel CreateButtonPanel(ExportQuadrantsViewModel viewModel)
+    private FrameworkElement CreateButtonPanel(ExportQuadrantsViewModel viewModel, ResourceDictionary resources)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 15, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 15, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
 
-        // 导出按钮
-        var exportButton = CreateStyledButton("导出四象限", 100);
-        exportButton.Click += (s, e) => ExportQuadrants(viewModel);
-
-        // 打开文件夹按钮
-        var openFolderButton = CreateStyledButton("打开文件夹", 100);
+        var openFolderButton = new Button { Content = "打开文件夹", Margin = new Thickness(0, 0, 10, 0) };
+        if (resources.Contains("SelectFileScriptButtonStyle")) openFolderButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
         openFolderButton.Click += (s, e) => OpenExportFolder();
-
-        panel.Children.Add(exportButton);
         panel.Children.Add(openFolderButton);
 
-        return panel;
-    }
+        var exportButton = new Button { Content = "导出四象限" };
+        if (resources.Contains("SelectFileScriptButtonStyle")) exportButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
+        exportButton.Click += (s, e) => ExportQuadrants(viewModel);
+        panel.Children.Add(exportButton);
 
-    private Button CreateStyledButton(string content, double width)
-    {
-        return new Button
-        {
-            Content = content,
-            Width = width,
-            Margin = new Thickness(2, 2, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1, 1, 1, 1)
-        };
+        return panel;
     }
 
     private void BrowseDirectory(TextBox textBox, ExportQuadrantsViewModel viewModel)

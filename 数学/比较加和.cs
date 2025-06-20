@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "比较加和",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "比较加和节点 - 比较多个图像并叠加显示",
     Version = "1.0",
     Category = "数学",
@@ -36,7 +36,7 @@ public class ComparisonSumScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像")
         };
     }
 
@@ -320,164 +320,106 @@ public class ComparisonSumScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
         var viewModel = CreateViewModel() as ComparisonSumViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "比较加和",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "比较加和设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 比较类型下拉框
-        var comparisonLabel = new Label
+        // 比较类型
+        var compareTypeLabel = new Label { Content = "比较类型:", Margin = new Thickness(0, 5, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) compareTypeLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(compareTypeLabel);
+        
+        var compareTypeComboBox = new ComboBox
         {
-            Content = "比较类型:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
+            Margin = new Thickness(0, 0, 0, 10),
+            ItemsSource = new Dictionary<string, string>
+            {
+                { "greater", "大于" },
+                { "less", "小于" },
+                { "equal", "等于" },
+                { "abs_diff", "绝对差值" }
+            },
+            SelectedValuePath = "Key",
+            DisplayMemberPath = "Value"
         };
-        mainPanel.Children.Add(comparisonLabel);
-
-        var comparisonComboBox = new ComboBox
-        {
-            Margin = new Thickness(5, 0, 5, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2D3748")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF4A5568"))
-        };
-
-        comparisonComboBox.Items.Add("大于阈值");
-        comparisonComboBox.Items.Add("小于阈值");
-        comparisonComboBox.Items.Add("接近阈值");
-        comparisonComboBox.Items.Add("差值");
-
-        var comparisonBinding = new Binding(nameof(CompareType))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
-            Converter = new CompareTypeConverter()
-        };
-        comparisonComboBox.SetBinding(ComboBox.SelectedItemProperty, comparisonBinding);
-        mainPanel.Children.Add(comparisonComboBox);
-
-        // 阈值滑块
-        var thresholdLabel = new Label
-        {
-            Content = "阈值:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
+        if(resources.Contains("DefaultComboBoxStyle")) compareTypeComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        compareTypeComboBox.SetBinding(ComboBox.SelectedValueProperty, new Binding(nameof(viewModel.CompareType)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(compareTypeComboBox);
+        
+        // 阈值
+        var thresholdLabel = new Label { Content = $"阈值: {viewModel.Threshold}" };
+        if(resources.Contains("DefaultLabelStyle")) thresholdLabel.Style = resources["DefaultLabelStyle"] as Style;
         mainPanel.Children.Add(thresholdLabel);
 
         var thresholdSlider = new Slider
         {
             Minimum = 0,
             Maximum = 255,
-            TickFrequency = 1,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 5)
+            Margin = new Thickness(0, 0, 0, 10)
         };
-
-        var thresholdBinding = new Binding(nameof(Threshold))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        thresholdSlider.SetBinding(Slider.ValueProperty, thresholdBinding);
+        if(resources.Contains("DefaultSliderStyle")) thresholdSlider.Style = resources["DefaultSliderStyle"] as Style;
+        thresholdSlider.SetBinding(Slider.ValueProperty, new Binding(nameof(viewModel.Threshold)) { Mode = BindingMode.TwoWay });
+        thresholdSlider.ValueChanged += (s, e) => thresholdLabel.Content = $"阈值: {(int)e.NewValue}";
         mainPanel.Children.Add(thresholdSlider);
+        
+        // Alpha强度
+        var alphaScaleLabel = new Label { Content = $"Alpha强度: {viewModel.AlphaScale}%" };
+        if(resources.Contains("DefaultLabelStyle")) alphaScaleLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(alphaScaleLabel);
 
-        // Alpha强度滑块
-        var alphaLabel = new Label
-        {
-            Content = "Alpha强度:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(alphaLabel);
-
-        var alphaSlider = new Slider
+        var alphaScaleSlider = new Slider
         {
             Minimum = 0,
             Maximum = 100,
-            TickFrequency = 1,
-            IsSnapToTickEnabled = true,
-            Margin = new Thickness(5, 0, 5, 5)
+            Margin = new Thickness(0, 0, 0, 10)
         };
+        if(resources.Contains("DefaultSliderStyle")) alphaScaleSlider.Style = resources["DefaultSliderStyle"] as Style;
+        alphaScaleSlider.SetBinding(Slider.ValueProperty, new Binding(nameof(viewModel.AlphaScale)) { Mode = BindingMode.TwoWay });
+        alphaScaleSlider.ValueChanged += (s, e) => alphaScaleLabel.Content = $"Alpha强度: {(int)e.NewValue}%";
+        mainPanel.Children.Add(alphaScaleSlider);
+        
+        // 混合模式
+        var blendModeLabel = new Label { Content = "混合模式:", Margin = new Thickness(0, 5, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) blendModeLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(blendModeLabel);
 
-        var alphaBinding = new Binding(nameof(AlphaScale))
+        var blendModeComboBox = new ComboBox
         {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+            Margin = new Thickness(0, 0, 0, 10),
+            ItemsSource = new Dictionary<string, string>
+            {
+                { "normal", "正常" },
+                { "add", "线性减淡(添加)" },
+                { "screen", "滤色" }
+            },
+            SelectedValuePath = "Key",
+            DisplayMemberPath = "Value"
         };
-        alphaSlider.SetBinding(Slider.ValueProperty, alphaBinding);
-        mainPanel.Children.Add(alphaSlider);
-
-        // 混合模式下拉框
-        var blendLabel = new Label
-        {
-            Content = "混合模式:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
-        mainPanel.Children.Add(blendLabel);
-
-        var blendComboBox = new ComboBox
-        {
-            Margin = new Thickness(5, 0, 5, 10),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2D3748")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF4A5568"))
-        };
-
-        blendComboBox.Items.Add("正常");
-        blendComboBox.Items.Add("正片叠底");
-        blendComboBox.Items.Add("滤色");
-        blendComboBox.Items.Add("叠加");
-
-        var blendBinding = new Binding(nameof(BlendMode))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
-            Converter = new BlendModeConverter()
-        };
-        blendComboBox.SetBinding(ComboBox.SelectedItemProperty, blendBinding);
-        mainPanel.Children.Add(blendComboBox);
+        if(resources.Contains("DefaultComboBoxStyle")) blendModeComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        blendModeComboBox.SetBinding(ComboBox.SelectedValueProperty, new Binding(nameof(viewModel.BlendMode)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(blendModeComboBox);
 
         return mainPanel;
     }
@@ -645,77 +587,5 @@ public class ComparisonSumViewModel : ScriptViewModelBase
     public override void Dispose()
     {
         base.Dispose();
-    }
-}
-
-// 比较类型转换器
-public class CompareTypeConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is string compareType)
-        {
-            return compareType switch
-            {
-                "greater" => "大于阈值",
-                "less" => "小于阈值",
-                "equal" => "接近阈值",
-                "abs_diff" => "差值",
-                _ => "大于阈值"
-            };
-        }
-        return "大于阈值";
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is string displayName)
-        {
-            return displayName switch
-            {
-                "大于阈值" => "greater",
-                "小于阈值" => "less",
-                "接近阈值" => "equal",
-                "差值" => "abs_diff",
-                _ => "greater"
-            };
-        }
-        return "greater";
-    }
-}
-
-// 混合模式转换器
-public class BlendModeConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is string blendMode)
-        {
-            return blendMode switch
-            {
-                "normal" => "正常",
-                "multiply" => "正片叠底",
-                "screen" => "滤色",
-                "overlay" => "叠加",
-                _ => "正常"
-            };
-        }
-        return "正常";
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is string displayName)
-        {
-            return displayName switch
-            {
-                "正常" => "normal",
-                "正片叠底" => "multiply",
-                "滤色" => "screen",
-                "叠加" => "overlay",
-                _ => "normal"
-            };
-        }
-        return "normal";
     }
 }

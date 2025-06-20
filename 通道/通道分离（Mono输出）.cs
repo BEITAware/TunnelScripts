@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "通道分离（Mono输出）",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "将输入图像分离为四个独立单通道输出",
     Version = "1.0",
     Category = "通道",
@@ -167,45 +167,41 @@ public class ChannelSeparationMonoScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as ChannelSeparationMonoViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "通道分离（Mono输出）",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "通道分离（Mono输出）" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
         // 说明文本
-        var descriptionLabel = new Label
+        var descriptionText = new TextBlock
         {
-            Content = "将RGBA图像分离为4个独立的单通道输出",
-            FontSize = 10,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCFFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            Margin = new Thickness(5, 10, 5, 10)
+            Text = "将RGBA图像分离为4个独立的单通道输出",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 5)
         };
-        mainPanel.Children.Add(descriptionLabel);
+        if (resources.Contains("StatusTextBlockStyle")) descriptionText.Style = resources["StatusTextBlockStyle"] as Style;
+        mainPanel.Children.Add(descriptionText);
 
         return mainPanel;
     }

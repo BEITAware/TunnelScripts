@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "通道合成（RGBA输出）",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "RGBA 通道合成：从四路输入图像分别提取 R/G/B/A 通道并合成一张 RGBA 图像",
     Version = "1.0",
     Category = "通道",
@@ -149,56 +149,44 @@ public class ChannelCompositionRGBAScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as ChannelCompositionRGBAViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "通道合成（RGBA输出）",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "通道合成（RGBA输出）" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
         // 说明文本
-        var descriptionLabel = new Label
+        var descriptionText = new TextBlock
         {
-            Content = "将四路输入图像分别映射到R/G/B/A通道，合成RGBA图像",
-            FontSize = 10,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCFFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            Margin = new Thickness(5, 10, 5, 5)
+            Text = "将四路输入图像分别映射到R/G/B/A通道，合成RGBA图像。\n" +
+                   "• 需要四路输入：channelR, channelG, channelB, channelA\n" +
+                   "• 所有输入图像必须尺寸一致\n" +
+                   "• 自动提取每个输入的第一个通道",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 5)
         };
-        mainPanel.Children.Add(descriptionLabel);
-
-        // 输入说明
-        var inputDescLabel = new Label
-        {
-            Content = "• 需要四路输入：channelR, channelG, channelB, channelA\n• 所有输入图像必须尺寸一致\n• 自动提取每个输入的第一个通道",
-            FontSize = 9,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAFFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            Margin = new Thickness(5, 0, 5, 10)
-        };
-        mainPanel.Children.Add(inputDescLabel);
+        if (resources.Contains("StatusTextBlockStyle")) descriptionText.Style = resources["StatusTextBlockStyle"] as Style;
+        mainPanel.Children.Add(descriptionText);
 
         return mainPanel;
     }

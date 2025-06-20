@@ -8,9 +8,24 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
+public enum KernelPreset
+{
+    custom,
+    sharpen,
+    edge_detect,
+    edge_detect_y,
+    edge_enhance,
+    emboss,
+    blur,
+    gaussian_blur,
+    gradient_x,
+    gradient_y,
+    laplacian
+}
+
 [RevivalScript(
     Name = "卷积核节点",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "生成卷积核",
     Version = "1.0",
     Category = "卷积",
@@ -19,7 +34,7 @@ using OpenCvSharp;
 public class ConvolutionKernelScript : RevivalScriptBase
 {
     [ScriptParameter(DisplayName = "核类型", Description = "卷积核的类型", Order = 0)]
-    public string KernelType { get; set; } = "sharpen";
+    public KernelPreset KernelType { get; set; } = KernelPreset.sharpen;
 
     [ScriptParameter(DisplayName = "核大小", Description = "卷积核的大小（必须为奇数）", Order = 1)]
     public int Size { get; set; } = 3;
@@ -103,37 +118,37 @@ public class ConvolutionKernelScript : RevivalScriptBase
 
         switch (KernelType)
         {
-            case "custom":
+            case KernelPreset.custom:
                 kernel = ParseCustomKernel();
                 break;
-            case "sharpen":
+            case KernelPreset.sharpen:
                 kernel = CreateSharpenKernel(size);
                 break;
-            case "edge_detect":
+            case KernelPreset.edge_detect:
                 kernel = CreateEdgeDetectKernel(size);
                 break;
-            case "edge_detect_y":
+            case KernelPreset.edge_detect_y:
                 kernel = CreateEdgeDetectYKernel(size);
                 break;
-            case "edge_enhance":
+            case KernelPreset.edge_enhance:
                 kernel = CreateEdgeEnhanceKernel(size);
                 break;
-            case "emboss":
+            case KernelPreset.emboss:
                 kernel = CreateEmbossKernel(size);
                 break;
-            case "blur":
+            case KernelPreset.blur:
                 kernel = CreateBlurKernel(size);
                 break;
-            case "gaussian_blur":
+            case KernelPreset.gaussian_blur:
                 kernel = CreateGaussianBlurKernel(size);
                 break;
-            case "gradient_x":
+            case KernelPreset.gradient_x:
                 kernel = CreateGradientXKernel(size);
                 break;
-            case "gradient_y":
+            case KernelPreset.gradient_y:
                 kernel = CreateGradientYKernel(size);
                 break;
-            case "laplacian":
+            case KernelPreset.laplacian:
                 kernel = CreateLaplacianKernel(size);
                 break;
             default:
@@ -586,7 +601,7 @@ public class ConvolutionKernelScript : RevivalScriptBase
         if (Math.Abs(Intensity - 1.0) > 0.001)
         {
             // 对于某些滤波器（如模糊），应该保持核的和为1
-            if (KernelType == "blur" || KernelType == "gaussian_blur")
+            if (KernelType == KernelPreset.blur || KernelType == KernelPreset.gaussian_blur)
             {
                 // 重新归一化核以保持和为1
                 Scalar kernelSum = Cv2.Sum(kernel);
@@ -609,201 +624,65 @@ public class ConvolutionKernelScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
         var viewModel = CreateViewModel() as ConvolutionKernelViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "卷积核生成",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "卷积核设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 核类型下拉框
-        var kernelTypePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var kernelTypeLabel = new Label
-        {
-            Content = "核类型:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        kernelTypePanel.Children.Add(kernelTypeLabel);
+        // 预设核心
+        var presetLabel = new Label { Content = "预设核心:", Margin = new Thickness(0, 5, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) presetLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(presetLabel);
 
-        var kernelTypeCombo = new ComboBox
+        var presetComboBox = new ComboBox
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Margin = new Thickness(0, 0, 0, 10),
+            ItemsSource = Enum.GetValues(typeof(KernelPreset)),
+            SelectedItem = viewModel.KernelType
         };
-        kernelTypeCombo.Items.Add("custom");
-        kernelTypeCombo.Items.Add("sharpen");
-        kernelTypeCombo.Items.Add("edge_detect");
-        kernelTypeCombo.Items.Add("edge_detect_y");
-        kernelTypeCombo.Items.Add("edge_enhance");
-        kernelTypeCombo.Items.Add("emboss");
-        kernelTypeCombo.Items.Add("blur");
-        kernelTypeCombo.Items.Add("gaussian_blur");
-        kernelTypeCombo.Items.Add("gradient_x");
-        kernelTypeCombo.Items.Add("gradient_y");
-        kernelTypeCombo.Items.Add("laplacian");
+        if(resources.Contains("DefaultComboBoxStyle")) presetComboBox.Style = resources["DefaultComboBoxStyle"] as Style;
+        presetComboBox.SetBinding(ComboBox.SelectedItemProperty, new Binding("KernelType") { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(presetComboBox);
 
-        var kernelTypeBinding = new Binding(nameof(KernelType))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        kernelTypeCombo.SetBinding(ComboBox.SelectedValueProperty, kernelTypeBinding);
-        kernelTypePanel.Children.Add(kernelTypeCombo);
-        mainPanel.Children.Add(kernelTypePanel);
-
-        // 核大小下拉框
-        var sizePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var sizeLabel = new Label
-        {
-            Content = "核大小:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        sizePanel.Children.Add(sizeLabel);
-
-        var sizeCombo = new ComboBox
-        {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        sizeCombo.Items.Add(3);
-        sizeCombo.Items.Add(5);
-        sizeCombo.Items.Add(7);
-        sizeCombo.Items.Add(9);
-
-        var sizeBinding = new Binding(nameof(Size))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        sizeCombo.SetBinding(ComboBox.SelectedValueProperty, sizeBinding);
-        sizePanel.Children.Add(sizeCombo);
-        mainPanel.Children.Add(sizePanel);
-
-        // 强度滑块
-        mainPanel.Children.Add(CreateSliderControl("强度", nameof(Intensity), 0.1, 5.0, viewModel));
-
-        // 自定义核文本框
-        var customKernelPanel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-        var customKernelLabel = new Label
-        {
-            Content = "自定义核:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        customKernelPanel.Children.Add(customKernelLabel);
+        // 自定义核心
+        var customKernelLabel = new Label { Content = "自定义核心 (例如: 1,0,-1;2,0,-2;1,0,-1):" };
+        if(resources.Contains("DefaultLabelStyle")) customKernelLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(customKernelLabel);
 
         var customKernelTextBox = new TextBox
         {
-            Margin = new Thickness(5, 0, 5, 0),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Height = 60,
+            Margin = new Thickness(0, 0, 0, 10),
+            AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            AcceptsReturn = true
+            Height = 80
         };
-
-        var customKernelBinding = new Binding(nameof(CustomKernel))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        customKernelTextBox.SetBinding(TextBox.TextProperty, customKernelBinding);
-        customKernelPanel.Children.Add(customKernelTextBox);
-        mainPanel.Children.Add(customKernelPanel);
+        if(resources.Contains("DefaultTextBoxStyle")) customKernelTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        customKernelTextBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding("CustomKernelString") { Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+        mainPanel.Children.Add(customKernelTextBox);
 
         return mainPanel;
-    }
-
-    private StackPanel CreateSliderControl(string label, string propertyName, double min, double max, ConvolutionKernelViewModel viewModel)
-    {
-        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-
-        // 标签和值显示
-        var headerPanel = new StackPanel { Orientation = Orientation.Horizontal };
-
-        var labelControl = new Label
-        {
-            Content = label + ":",
-            Width = 80,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        var valueLabel = new Label
-        {
-            Width = 60,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            HorizontalContentAlignment = HorizontalAlignment.Right
-        };
-
-        headerPanel.Children.Add(labelControl);
-        headerPanel.Children.Add(valueLabel);
-        panel.Children.Add(headerPanel);
-
-        // 滑块
-        var slider = new Slider
-        {
-            Minimum = min,
-            Maximum = max,
-            TickFrequency = (max - min) / 20,
-            IsSnapToTickEnabled = false,
-            Margin = new Thickness(5, 0, 5, 0)
-        };
-
-        // 数据绑定
-        var binding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        slider.SetBinding(Slider.ValueProperty, binding);
-
-        var valueBinding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.OneWay,
-            StringFormat = "F2"
-        };
-        valueLabel.SetBinding(Label.ContentProperty, valueBinding);
-
-        panel.Children.Add(slider);
-        return panel;
     }
 
     public override IScriptViewModel CreateViewModel()
@@ -831,7 +710,12 @@ public class ConvolutionKernelScript : RevivalScriptBase
     public override void DeserializeParameters(Dictionary<string, object> data)
     {
         if (data.TryGetValue(nameof(KernelType), out var kernelType))
-            KernelType = kernelType?.ToString() ?? "custom";
+        {
+            if (Enum.TryParse<KernelPreset>(kernelType.ToString(), out var preset))
+            {
+                KernelType = preset;
+            }
+        }
         if (data.TryGetValue(nameof(Size), out var size))
             Size = Convert.ToInt32(size);
         if (data.TryGetValue(nameof(Intensity), out var intensity))
@@ -855,7 +739,7 @@ public class ConvolutionKernelViewModel : ScriptViewModelBase
 {
     private ConvolutionKernelScript ConvolutionKernelScript => (ConvolutionKernelScript)Script;
 
-    public string KernelType
+    public KernelPreset KernelType
     {
         get => ConvolutionKernelScript.KernelType;
         set
@@ -947,7 +831,12 @@ public class ConvolutionKernelViewModel : ScriptViewModelBase
     public override async Task SetParameterDataAsync(Dictionary<string, object> data)
     {
         if (data.TryGetValue(nameof(KernelType), out var kernelType))
-            KernelType = kernelType?.ToString() ?? "custom";
+        {
+            if (Enum.TryParse<KernelPreset>(kernelType.ToString(), out var preset))
+            {
+                ConvolutionKernelScript.KernelType = preset;
+            }
+        }
         if (data.TryGetValue(nameof(Size), out var size))
             Size = Convert.ToInt32(size);
         if (data.TryGetValue(nameof(Intensity), out var intensity))
@@ -959,11 +848,20 @@ public class ConvolutionKernelViewModel : ScriptViewModelBase
 
     public override async Task ResetToDefaultAsync()
     {
-        KernelType = "sharpen";
-        Size = 3;
-        Intensity = 1.0;
-        CustomKernel = "0,0,0;0,1,0;0,0,0";
-        await Task.CompletedTask;
+        await RunOnUIThreadAsync(() =>
+        {
+            KernelType = KernelPreset.sharpen;
+            NotifyParameterChanged(nameof(KernelType), KernelType);
+
+            Size = 3;
+            NotifyParameterChanged(nameof(Size), Size);
+
+            Intensity = 1.0;
+            NotifyParameterChanged(nameof(Intensity), Intensity);
+
+            CustomKernel = "0,0,0;0,1,0;0,0,0";
+            NotifyParameterChanged(nameof(CustomKernel), CustomKernel);
+        });
     }
 
     public override void Dispose()

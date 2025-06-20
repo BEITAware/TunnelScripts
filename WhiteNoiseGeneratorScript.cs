@@ -5,12 +5,14 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Tunnel_Next.Services.Scripting;
+using System.Windows.Media;
+using System.Windows.Data;
 
 namespace TNX_Scripts.ScriptPrototypes
 {
     [RevivalScript(
         Name = "白噪声生成器",
-        Author = "GeneratedByAI",
+        Author = "BEITAware",
         Description = "生成随机白噪声图像，可选均匀分布/高斯分布",
         Version = "1.0",
         Category = "图像生成",
@@ -78,43 +80,95 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override FrameworkElement CreateParameterControl()
         {
-            var panel = new StackPanel { Margin = new Thickness(5) };
-            var vm = CreateViewModel() as WhiteNoiseViewModel;
-            panel.DataContext = vm;
+            var mainPanel = new StackPanel { Margin = new Thickness(5) };
+            
+            // 加载资源
+            var resources = new ResourceDictionary();
+            var resourcePaths = new[]
+            {
+                "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml"
+            };
+            foreach (var path in resourcePaths)
+            {
+                try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+                catch { /* 静默处理 */ }
+            }
 
-            panel.Children.Add(new Label { Content = "白噪声生成器", FontWeight = FontWeights.Bold });
+            if (resources.Contains("Layer_2"))
+            {
+                mainPanel.Background = resources["Layer_2"] as Brush;
+            }
+
+            var viewModel = CreateViewModel() as WhiteNoiseViewModel;
+            mainPanel.DataContext = viewModel;
+
+            var titleLabel = new Label { Content = "白噪声生成器" };
+            if (resources.Contains("TitleLabelStyle"))
+            {
+                titleLabel.Style = resources["TitleLabelStyle"] as Style;
+            }
+            mainPanel.Children.Add(titleLabel);
 
             // Noise type
-            panel.Children.Add(new Label { Content = "噪声类型:" });
-            var combo = new ComboBox { ItemsSource = Enum.GetValues(typeof(NoiseType)) };
+            mainPanel.Children.Add(CreateLabel("噪声类型:", resources));
+            var combo = new ComboBox { ItemsSource = Enum.GetValues(typeof(NoiseType)), Margin = new Thickness(0, 2, 0, 10) };
+            if (resources.Contains("DefaultComboBoxStyle")) combo.Style = resources["DefaultComboBoxStyle"] as Style;
             combo.SetBinding(ComboBox.SelectedItemProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Type)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(combo);
+            mainPanel.Children.Add(combo);
 
             // Width
-            panel.Children.Add(new Label { Content = "宽度:" });
-            var tbWidth = new TextBox { Width = 60 };
-            tbWidth.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Width)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(tbWidth);
+            mainPanel.Children.Add(CreateLabel("宽度:", resources));
+            var tbWidth = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+            if (resources.Contains("DefaultTextBoxStyle")) tbWidth.Style = resources["DefaultTextBoxStyle"] as Style;
+            tbWidth.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Width)) { Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+            mainPanel.Children.Add(tbWidth);
 
             // Height
-            panel.Children.Add(new Label { Content = "高度:" });
-            var tbHeight = new TextBox { Width = 60 };
-            tbHeight.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Height)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(tbHeight);
+            mainPanel.Children.Add(CreateLabel("高度:", resources));
+            var tbHeight = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+            if (resources.Contains("DefaultTextBoxStyle")) tbHeight.Style = resources["DefaultTextBoxStyle"] as Style;
+            tbHeight.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Height)) { Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+            mainPanel.Children.Add(tbHeight);
 
+            // Gaussian-specific controls
+            var gaussianPanel = new StackPanel();
+            var visibilityBinding = new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Type))
+            {
+                Converter = new EnumToVisibilityConverter(),
+                ConverterParameter = NoiseType.Gaussian
+            };
+            gaussianPanel.SetBinding(UIElement.VisibilityProperty, visibilityBinding);
+            mainPanel.Children.Add(gaussianPanel);
+            
             // Mean
-            panel.Children.Add(new Label { Content = "均值:" });
-            var sliderMean = new Slider { Minimum = 0, Maximum = 1, TickFrequency = 0.01, Width = 120 };
+            gaussianPanel.Children.Add(CreateLabel("均值:", resources));
+            var sliderMean = new Slider { Minimum = 0, Maximum = 1, SmallChange = 0.01, Margin = new Thickness(0, 2, 0, 10) };
+            if (resources.Contains("DefaultSliderStyle")) sliderMean.Style = resources["DefaultSliderStyle"] as Style;
             sliderMean.SetBinding(Slider.ValueProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.Mean)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(sliderMean);
+            gaussianPanel.Children.Add(sliderMean);
 
             // StdDev
-            panel.Children.Add(new Label { Content = "标准差:" });
-            var sliderStd = new Slider { Minimum = 0, Maximum = 1, TickFrequency = 0.01, Width = 120 };
+            gaussianPanel.Children.Add(CreateLabel("标准差:", resources));
+            var sliderStd = new Slider { Minimum = 0, Maximum = 1, SmallChange = 0.01, Margin = new Thickness(0, 2, 0, 10) };
+            if (resources.Contains("DefaultSliderStyle")) sliderStd.Style = resources["DefaultSliderStyle"] as Style;
             sliderStd.SetBinding(Slider.ValueProperty, new System.Windows.Data.Binding(nameof(WhiteNoiseViewModel.StdDev)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(sliderStd);
+            gaussianPanel.Children.Add(sliderStd);
 
-            return panel;
+            return mainPanel;
+        }
+
+        private Label CreateLabel(string content, ResourceDictionary resources)
+        {
+            var label = new Label { Content = content, Margin = new Thickness(0, 10, 0, 2) };
+            if (resources.Contains("DefaultLabelStyle"))
+            {
+                label.Style = resources["DefaultLabelStyle"] as Style;
+            }
+            return label;
         }
 
         public override IScriptViewModel CreateViewModel()
@@ -151,6 +205,22 @@ namespace TNX_Scripts.ScriptPrototypes
                 Mean = md;
             if (data.TryGetValue(nameof(StdDev), out var sd) && sd is double sdd)
                 StdDev = sdd;
+        }
+    }
+
+    public class EnumToVisibilityConverter : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            if (value == null || parameter == null)
+                return Visibility.Collapsed;
+            
+            return value.Equals(parameter) ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            throw new NotImplementedException();
         }
     }
 

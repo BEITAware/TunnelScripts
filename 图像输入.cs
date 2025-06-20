@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 [RevivalScript(
     Name = "图像输入",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "从文件加载图像并向下游输出",
     Version = "1.0",
     Category = "输入输出",
@@ -164,262 +164,96 @@ public class ImageInputScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 使用本地样式代替外部资源文件
-        LinearGradientBrush textBoxIdleBrush = new LinearGradientBrush();
-        textBoxIdleBrush.StartPoint = new System.Windows.Point(0.437947, 5.5271);
-        textBoxIdleBrush.EndPoint = new System.Windows.Point(0.437947, -4.52682);
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#91007BFF"), 0.142857));
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.502783));
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#C30099FF"), 0.792208));
-        
-        LinearGradientBrush textBoxActivatedBrush = new LinearGradientBrush();
-        textBoxActivatedBrush.StartPoint = new System.Windows.Point(0.437947, 5.5271);
-        textBoxActivatedBrush.EndPoint = new System.Windows.Point(0.437947, -4.52682);
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#AF00C7FF"), 0.413729));
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.495362));
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF00ECFF"), 0.692022));
-        
-        RadialGradientBrush buttonIdleBrush = new RadialGradientBrush();
-        buttonIdleBrush.RadiusX = 2.15218;
-        buttonIdleBrush.RadiusY = 1.68352;
-        buttonIdleBrush.Center = new System.Windows.Point(0.499961, 0.992728);
-        buttonIdleBrush.GradientOrigin = new System.Windows.Point(0.499961, 0.992728);
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#29FFFFFF"), 0));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.380334));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.41744));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#5EFFFFFF"), 0.769944));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#4AFFFFFF"), 0.892393));
-        
-        RadialGradientBrush buttonPressedBrush = new RadialGradientBrush();
-        buttonPressedBrush.RadiusX = 2.15219;
-        buttonPressedBrush.RadiusY = 1.68352;
-        buttonPressedBrush.Center = new System.Windows.Point(0.499962, 0.992728);
-        buttonPressedBrush.GradientOrigin = new System.Windows.Point(0.499962, 0.992728);
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF38CBF4"), 0.0426716));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.506494));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.517625));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#5EFFFFFF"), 0.736549));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#4AFFFFFF"), 0.892393));
-        
-        LinearGradientBrush buttonHoverBrush = new LinearGradientBrush();
-        buttonHoverBrush.StartPoint = new System.Windows.Point(0.5, -0.667874);
-        buttonHoverBrush.EndPoint = new System.Windows.Point(0.5, 1.66788);
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128));
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxActivatedStyles.xaml"
+        };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
+        foreach (var path in resourcePaths)
+        {
+            try
             {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+            }
+            catch (Exception)
+            {
+                // 静默处理资源加载失败
+            }
+        }
+
+        // 应用主面板样式
+        if (resources.Contains("MainPanelStyle"))
+        {
+            mainPanel.Style = resources["MainPanelStyle"] as Style;
+        }
 
         // 创建并设置ViewModel作为DataContext
         var viewModel = CreateViewModel() as ImageInputViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
+        var titleLabel = new Label { Content = "图像文件选择" };
+        if (resources.Contains("TitleLabelStyle"))
         {
-            Content = "图像文件选择",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleLabel);
 
         // 当前路径显示
-        var pathLabel = new Label
+        var pathLabel = new Label { Content = "当前路径:" };
+        if (resources.Contains("DefaultLabelStyle"))
         {
-            Content = "当前路径:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+            pathLabel.Style = resources["DefaultLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(pathLabel);
 
-        var pathTextBox = new TextBox
+        var pathTextBox = new TextBox { IsReadOnly = true };
+        if (resources.Contains("DefaultTextBoxStyle"))
         {
-            IsReadOnly = true,
-            Background = textBoxIdleBrush,
-            Foreground = new SolidColorBrush(Colors.White),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 0, 10),
-            TextWrapping = TextWrapping.Wrap,
-            MinHeight = 40,
-            Padding = new Thickness(6, 4, 6, 4),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-        
-        // 创建TextBox样式
-        var textBoxStyle = new Style(typeof(TextBox));
-        
-        // 添加触发器：获得焦点时改变背景
-        var focusedTrigger = new Trigger { Property = TextBox.IsFocusedProperty, Value = true };
-        focusedTrigger.Setters.Add(new Setter(TextBox.BackgroundProperty, textBoxActivatedBrush));
-        textBoxStyle.Triggers.Add(focusedTrigger);
-        
-        pathTextBox.Style = textBoxStyle;
-
-        // 使用数据绑定将TextBox的Text属性绑定到ViewModel的ImagePath属性
-        var pathBinding = new System.Windows.Data.Binding("ImagePath")
-        {
-            Source = viewModel,
-            Mode = System.Windows.Data.BindingMode.OneWay,
-            UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
-        };
+            pathTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        var pathBinding = new Binding("ImagePath") { Mode = BindingMode.OneWay };
         pathTextBox.SetBinding(TextBox.TextProperty, pathBinding);
-
         mainPanel.Children.Add(pathTextBox);
 
-        // 选择文件按钮 - 使用设计资源
-        var selectButton = new Button
+        // 选择文件按钮
+        var selectFileButton = new Button { Content = "选择文件", Margin = new Thickness(0,5,0,10) };
+        if (resources.Contains("SelectFileScriptButtonStyle"))
         {
-            Content = "选择图像文件",
-            Margin = new Thickness(2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
-        };
-        
-        // 设置按钮样式
-        var buttonStyle = new Style(typeof(Button));
-        
-        // 普通状态
-        var idleTrigger = new Trigger { Property = Button.IsMouseOverProperty, Value = false };
-        idleTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonIdleBrush));
-        buttonStyle.Triggers.Add(idleTrigger);
-        
-        // 悬停状态
-        var hoverTrigger = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonHoverBrush));
-        buttonStyle.Triggers.Add(hoverTrigger);
-        
-        // 按下状态
-        var pressedTrigger = new Trigger { Property = Button.IsPressedProperty, Value = true };
-        pressedTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonPressedBrush));
-        buttonStyle.Triggers.Add(pressedTrigger);
-        
-        selectButton.Style = buttonStyle;
-
-        // 重新处理按钮 - 使用设计资源
-        var reprocessButton = new Button
+            selectFileButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
+        }
+        selectFileButton.Click += (s, e) =>
         {
-            Content = "重新处理节点",
-            Margin = new Thickness(2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1),
-            Style = buttonStyle
-        };
-
-        // 图像信息显示部分
-        TextBlock infoTextBlock = new TextBlock
-        {
-            Margin = new Thickness(10, 5, 10, 10),
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        // 使用事件驱动的手动UI更新
-        infoTextBlock.Text = viewModel.ImageInfo;
-
-        // 订阅ViewModel的属性变化事件来更新图像信息显示
-        viewModel.PropertyChanged += (sender, e) =>
-        {
-            if (e.PropertyName == nameof(viewModel.ImageInfo))
+            var openFileDialog = new OpenFileDialog
             {
-                infoTextBlock.Text = viewModel.ImageInfo;
-            }
-        };
-
-        // 调试信息
-        TextBlock debugTextBlock = new TextBlock
-        {
-            Margin = new Thickness(10, 5, 10, 5),
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 10
-        };
-        debugTextBlock.Text = $"节点ID: {NodeInstanceId}";
-
-        selectButton.Click += (s, e) =>
-        {
-
-            var dialog = new OpenFileDialog
-            {
-                Filter = "图像文件|*.jpg;*.jpeg;*.png;*.bmp;*.tiff;*.tif;*.gif;*.webp|" +
-                        "JPEG文件|*.jpg;*.jpeg|" +
-                        "PNG文件|*.png|" +
-                        "BMP文件|*.bmp|" +
-                        "TIFF文件|*.tiff;*.tif|" +
-                        "所有文件|*.*",
-                Title = "选择图像文件",
-                CheckFileExists = true,
-                CheckPathExists = true
+                Filter = "图像文件|*.bmp;*.jpg;*.jpeg;*.png;*.tiff|所有文件|*.*"
             };
-
-            // 获取当前路径（优先从ViewModel获取，如果有的话）
-            var currentPath = GetCurrentImagePath(mainPanel);
-            if (!string.IsNullOrEmpty(currentPath) && System.IO.File.Exists(currentPath))
+            if (openFileDialog.ShowDialog() == true)
             {
-                dialog.InitialDirectory = System.IO.Path.GetDirectoryName(currentPath);
-                dialog.FileName = System.IO.Path.GetFileName(currentPath);
-            }
-
-            if (dialog.ShowDialog() == true)
-            {
-                // 优先通过ViewModel设置，这样会自动触发OnParameterChanged
-                SetImagePath(mainPanel, dialog.FileName);
+                viewModel.ImagePath = openFileDialog.FileName;
             }
         };
+        mainPanel.Children.Add(selectFileButton);
 
-        reprocessButton.Click += (s, e) =>
+        // 图像信息
+        var infoLabel = new Label { Content = "图像信息:" };
+        if (resources.Contains("DefaultLabelStyle"))
         {
-            // 直接触发重新处理
-            if (this is RevivalScriptBase rsb)
-            {
-                // 使用RevivalScriptBase的OnParameterChanged方法触发重新处理
-                rsb.OnParameterChanged(nameof(ImagePath), ImagePath);
-            }
-            else
-            {
-                // 回退到异步方法
-                _ = OnParameterChangedAsync(nameof(ImagePath), null, ImagePath);
-            }
-        };
+            infoLabel.Style = resources["DefaultLabelStyle"] as Style;
+        }
+        mainPanel.Children.Add(infoLabel);
 
-        mainPanel.Children.Add(selectButton);
-        mainPanel.Children.Add(reprocessButton);
-
-        // 图像信息显示
-        var infoPanel = CreateImageInfoPanel(infoTextBlock, textBoxIdleBrush);
-        mainPanel.Children.Add(infoPanel);
-
-        // 调试信息显示
-        mainPanel.Children.Add(debugTextBlock);
+        var infoTextBlock = new TextBlock();
+        var infoBinding = new Binding("ImageInfo") { Mode = BindingMode.OneWay };
+        infoTextBlock.SetBinding(TextBlock.TextProperty, infoBinding);
+        mainPanel.Children.Add(infoTextBlock);
 
         return mainPanel;
     }

@@ -11,7 +11,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "基本处理",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "基本图像处理：亮度、对比度、饱和度、色调、白平衡调整",
     Version = "1.0",
     Category = "图像处理",
@@ -46,7 +46,7 @@ public class BasicProcessingScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像")
         };
     }
 
@@ -356,228 +356,65 @@ public class BasicProcessingScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 使用本地样式代替外部资源文件
-        LinearGradientBrush textBoxIdleBrush = new LinearGradientBrush();
-        textBoxIdleBrush.StartPoint = new System.Windows.Point(0.437947, 5.5271);
-        textBoxIdleBrush.EndPoint = new System.Windows.Point(0.437947, -4.52682);
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#91007BFF"), 0.142857));
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.502783));
-        textBoxIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#C30099FF"), 0.792208));
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
         
-        LinearGradientBrush textBoxActivatedBrush = new LinearGradientBrush();
-        textBoxActivatedBrush.StartPoint = new System.Windows.Point(0.437947, 5.5271);
-        textBoxActivatedBrush.EndPoint = new System.Windows.Point(0.437947, -4.52682);
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#AF00C7FF"), 0.413729));
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.495362));
-        textBoxActivatedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF00ECFF"), 0.692022));
-        
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
 
-        // 创建ViewModel
+        // ViewModel
         var viewModel = CreateViewModel() as BasicProcessingViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "基本图像处理",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "基本处理" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 创建滑块控件
-        mainPanel.Children.Add(CreateSliderControl("亮度", nameof(Brightness), -100, 100, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("对比度", nameof(Contrast), -100, 100, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("饱和度", nameof(Saturation), -100, 100, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("色调", nameof(Hue), -180, 180, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("白平衡 R", nameof(WhiteBalanceR), 0.5, 2.0, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("白平衡 G", nameof(WhiteBalanceG), 0.5, 2.0, viewModel));
-        mainPanel.Children.Add(CreateSliderControl("白平衡 B", nameof(WhiteBalanceB), 0.5, 2.0, viewModel));
+        // 滑块控件
+        mainPanel.Children.Add(CreateSliderControl("亮度", nameof(viewModel.Brightness), -100, 100, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("对比度", nameof(viewModel.Contrast), -100, 100, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("饱和度", nameof(viewModel.Saturation), -100, 100, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("色调", nameof(viewModel.Hue), -180, 180, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("白平衡 R", nameof(viewModel.WhiteBalanceR), 0.5, 2.0, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("白平衡 G", nameof(viewModel.WhiteBalanceG), 0.5, 2.0, viewModel, resources));
+        mainPanel.Children.Add(CreateSliderControl("白平衡 B", nameof(viewModel.WhiteBalanceB), 0.5, 2.0, viewModel, resources));
 
-        // 创建按钮样式
-        RadialGradientBrush buttonIdleBrush = new RadialGradientBrush();
-        buttonIdleBrush.RadiusX = 2.15218;
-        buttonIdleBrush.RadiusY = 1.68352;
-        buttonIdleBrush.Center = new System.Windows.Point(0.499961, 0.992728);
-        buttonIdleBrush.GradientOrigin = new System.Windows.Point(0.499961, 0.992728);
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#29FFFFFF"), 0));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.380334));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.41744));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#5EFFFFFF"), 0.769944));
-        buttonIdleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#4AFFFFFF"), 0.892393));
-        
-        RadialGradientBrush buttonPressedBrush = new RadialGradientBrush();
-        buttonPressedBrush.RadiusX = 2.15219;
-        buttonPressedBrush.RadiusY = 1.68352;
-        buttonPressedBrush.Center = new System.Windows.Point(0.499962, 0.992728);
-        buttonPressedBrush.GradientOrigin = new System.Windows.Point(0.499962, 0.992728);
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF38CBF4"), 0.0426716));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.506494));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.517625));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#5EFFFFFF"), 0.736549));
-        buttonPressedBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#4AFFFFFF"), 0.892393));
-        
-        LinearGradientBrush buttonHoverBrush = new LinearGradientBrush();
-        buttonHoverBrush.StartPoint = new System.Windows.Point(0.5, -0.667874);
-        buttonHoverBrush.EndPoint = new System.Windows.Point(0.5, 1.66788);
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625));
-        buttonHoverBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128));
-        
         // 重置按钮
-        var resetButton = new Button
-        {
-            Content = "重置所有参数",
-            Margin = new Thickness(2, 10, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
-        };
-        
-        // 设置按钮样式
-        var buttonStyle = new Style(typeof(Button));
-        
-        // 普通状态
-        var idleTrigger = new Trigger { Property = Button.IsMouseOverProperty, Value = false };
-        idleTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonIdleBrush));
-        buttonStyle.Triggers.Add(idleTrigger);
-        
-        // 悬停状态
-        var hoverTrigger = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonHoverBrush));
-        buttonStyle.Triggers.Add(hoverTrigger);
-        
-        // 按下状态
-        var pressedTrigger = new Trigger { Property = Button.IsPressedProperty, Value = true };
-        pressedTrigger.Setters.Add(new Setter(Button.BackgroundProperty, buttonPressedBrush));
-        buttonStyle.Triggers.Add(pressedTrigger);
-        
-        resetButton.Style = buttonStyle;
-
-        resetButton.Click += (s, e) =>
-        {
-            viewModel?.ResetToDefault();
-        };
-
+        var resetButton = new Button { Content = "重置所有参数", Margin = new Thickness(0, 10, 0, 0) };
+        if (resources.Contains("SelectFileScriptButtonStyle")) resetButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
+        resetButton.Click += async (s, e) => await viewModel.ResetToDefault();
         mainPanel.Children.Add(resetButton);
 
         return mainPanel;
     }
 
-    private StackPanel CreateSliderControl(string label, string propertyName, double min, double max, BasicProcessingViewModel viewModel)
+    private FrameworkElement CreateSliderControl(string label, string propertyName, double min, double max, BasicProcessingViewModel viewModel, ResourceDictionary resources)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
+        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 0) };
 
-        // 标签和值显示
-        var headerPanel = new StackPanel { Orientation = Orientation.Horizontal };
-
-        var labelControl = new Label
-        {
-            Content = label + ":",
-            Width = 80,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
-
-        var valueLabel = new Label
-        {
-            Width = 60,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            HorizontalContentAlignment = HorizontalAlignment.Right
-        };
-
-        headerPanel.Children.Add(labelControl);
-        headerPanel.Children.Add(valueLabel);
-        panel.Children.Add(headerPanel);
-
-        // 创建滑块样式
-        LinearGradientBrush sliderBrush = new LinearGradientBrush();
-        sliderBrush.StartPoint = new System.Windows.Point(0.5, 21.1807);
-        sliderBrush.EndPoint = new System.Windows.Point(0.5, -20.1807);
-        sliderBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2600C7FF"), 0.48166));
-        sliderBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.500902));
-        sliderBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2500E3FF"), 0.50932));
+        var labelControl = new Label { Content = label };
+        if (resources.Contains("DefaultLabelStyle")) labelControl.Style = resources["DefaultLabelStyle"] as Style;
         
-        RadialGradientBrush sliderHandleBrush = new RadialGradientBrush();
-        sliderHandleBrush.RadiusX = 1.58251;
-        sliderHandleBrush.RadiusY = 0.882493;
-        sliderHandleBrush.Center = new System.Windows.Point(0.500127, 1.00007);
-        sliderHandleBrush.GradientOrigin = new System.Windows.Point(0.500127, 1.00007);
-        sliderHandleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#63FFFFFF"), 0));
-        sliderHandleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0.320505));
-        sliderHandleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7000E3FF"), 0.711365));
-        sliderHandleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#8E00FFF6"), 0.890559));
-        sliderHandleBrush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#B853FFEC"), 1));
-
-        // 滑块
-        var slider = new Slider
-        {
-            Minimum = min,
-            Maximum = max,
-            TickFrequency = (max - min) / 20,
-            IsSnapToTickEnabled = false,
-            Margin = new Thickness(5, 0, 5, 0)
-        };
+        var slider = new Slider { Minimum = min, Maximum = max };
+        if (resources.Contains("DefaultSliderStyle")) slider.Style = resources["DefaultSliderStyle"] as Style;
+        slider.SetBinding(Slider.ValueProperty, new Binding(propertyName) { Mode = BindingMode.TwoWay });
         
-        // 创建滑块样式
-        var sliderStyle = new Style(typeof(Slider));
-        
-        // 滑块轨道样式
-        var trackStyle = new Style(typeof(Track));
-        trackStyle.Setters.Add(new Setter(Control.BackgroundProperty, sliderBrush));
-        
-        // 滑块手柄样式
-        var thumbStyle = new Style(typeof(Thumb));
-        thumbStyle.Setters.Add(new Setter(Control.BackgroundProperty, sliderHandleBrush));
-        thumbStyle.Setters.Add(new Setter(FrameworkElement.WidthProperty, 16.0));
-        thumbStyle.Setters.Add(new Setter(FrameworkElement.HeightProperty, 16.0));
-        
-        sliderStyle.Resources.Add(typeof(Track), trackStyle);
-        sliderStyle.Resources.Add(typeof(Thumb), thumbStyle);
-        
-        slider.Style = sliderStyle;
-
-        // 数据绑定
-        var binding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        slider.SetBinding(Slider.ValueProperty, binding);
-
-        var valueBinding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.OneWay,
-            StringFormat = "F2"
-        };
-        valueLabel.SetBinding(Label.ContentProperty, valueBinding);
-
+        panel.Children.Add(labelControl);
         panel.Children.Add(slider);
+        
         return panel;
     }
 

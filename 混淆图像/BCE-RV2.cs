@@ -1,21 +1,23 @@
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Diagnostics;
+using System.Windows.Data;
+using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 
 [RevivalScript(
     Name = "混淆图像 Revised 2",
-    Author = "Your Name",
+    Author = "BEITAware",
     Description = "基于块/通道可逆打乱的图像加密脚本，支持移位输入以优化边界。",
     Version = "1.2",
     Category = "Security",
     Color = "#8E44AD")]
-public class BlockScrambleEncryptorScript : RevivalScriptBase
+public class BlockScrambleEncryptorScriptRV2 : RevivalScriptBase
 {
     // --------------- 参数 -----------------
     [ScriptParameter(DisplayName = "Seed", Description = "随机种子", Order = 0)]
@@ -186,13 +188,13 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
     {
         var channels = roi.Split();
         if (channels.Length < 3) { var c = roi.Clone(); Array.ForEach(channels, m => m.Dispose()); return c; }
-        int[][] perms = { new[]{0,1,2}, new[]{0,2,1}, new[]{1,0,2}, new[]{1,2,0}, new[]{2,0,1}, new[]{2,1,0} };
+        int[][] perms = { new[] { 0, 1, 2 }, new[] { 0, 2, 1 }, new[] { 1, 0, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 2, 1, 0 } };
         int[] perm = perms[permIdx];
         int[] inverse = new int[3];
         for (int i = 0; i < 3; i++) inverse[perm[i]] = i;
         int[] order = encrypt ? perm : inverse;
         var resultChannels = new List<Mat> { channels[order[0]], channels[order[1]], channels[order[2]] };
-        if(channels.Length > 3) resultChannels.Add(channels[3]); // Keep Alpha
+        if (channels.Length > 3) resultChannels.Add(channels[3]); // Keep Alpha
         var merged = new Mat();
         Cv2.Merge(resultChannels.ToArray(), merged);
         Array.ForEach(channels, m => m.Dispose());
@@ -204,7 +206,7 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         int w = src.Width, h = src.Height;
         shiftX = ((shiftX % w) + w) % w;
         shiftY = ((shiftY % h) + h) % h;
-        if (shiftX == 0 && shiftY == 0) return src;
+        if (shiftX == 0 && shiftY == 0) return src.Clone();
         var dst = new Mat(src.Size(), src.Type());
         src.SubMat(0, h - shiftY, 0, w - shiftX).CopyTo(dst.SubMat(shiftY, h, shiftX, w));
         src.SubMat(0, h - shiftY, w - shiftX, w).CopyTo(dst.SubMat(shiftY, h, 0, shiftX));
@@ -230,11 +232,10 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             }
         }
 
-        // 应用手动偏移
         if (maskOffsetX != 0 || maskOffsetY != 0)
         {
             var shiftedWeight = ShiftWrap(weight, maskOffsetX, maskOffsetY);
-            weight.Dispose(); // 释放旧的
+            weight.Dispose();
             weight = shiftedWeight;
         }
 
@@ -249,74 +250,138 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
                 var pA = new Mat(); var pB = new Mat();
                 Cv2.Multiply(aCh[i], invWeight, pA);
                 Cv2.Multiply(bCh[i], weight, pB);
-                Cv2.Add(pA, pB, fusedBGR[i] = new Mat());
+                fusedBGR[i] = new Mat();
+                Cv2.Add(pA, pB, fusedBGR[i]);
                 pA.Dispose(); pB.Dispose();
             }
-            var alpha = aCh[3].Clone();
-            Cv2.Merge(new[] { fusedBGR[0], fusedBGR[1], fusedBGR[2], alpha }, fused);
-            Array.ForEach(aCh, m=>m.Dispose()); Array.ForEach(bCh, m=>m.Dispose()); Array.ForEach(fusedBGR, m=>m.Dispose());
-            invWeight.Dispose(); alpha.Dispose();
+            var channels = new List<Mat>(fusedBGR) { aCh[3].Clone() };
+            Cv2.Merge(channels.ToArray(), fused);
+
+            Array.ForEach(aCh, m => m.Dispose());
+            Array.ForEach(bCh, m => m.Dispose());
+            Array.ForEach(fusedBGR, m => m.Dispose());
+            invWeight.Dispose();
         }
         else
         {
-            var w3 = new Mat(); Cv2.Merge(new[] { weight, weight, weight }, w3);
-            var iw3 = new Mat(); Cv2.Subtract(new Scalar(1.0), w3, iw3);
-            var pA = new Mat(); var pB = new Mat();
-            Cv2.Multiply(imgA, iw3, pA);
-            Cv2.Multiply(imgB, w3, pB);
-            Cv2.Add(pA, pB, fused);
-            w3.Dispose(); iw3.Dispose(); pA.Dispose(); pB.Dispose();
+            var invWeight = new Mat();
+            Cv2.Subtract(new Scalar(1.0), weight, invWeight);
+            Cv2.Multiply(imgA, invWeight, imgA);
+            Cv2.Multiply(imgB, weight, imgB);
+            Cv2.Add(imgA, imgB, fused);
+            invWeight.Dispose();
         }
+
         weight.Dispose();
         return fused;
     }
 
     public override FrameworkElement CreateParameterControl()
     {
-        var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(5) };
-        var seedLabel = new Label { Content = "Seed：" };
-        var seedBox = new TextBox { Text = Seed.ToString(), Width = 120 };
-        seedBox.TextChanged += (s, e) => { if (int.TryParse(seedBox.Text, out int v)) { Seed = v; OnParameterChanged(nameof(Seed), v); } };
-        var encryptCheck = new CheckBox { Content = "Encrypt Mode", IsChecked = Encrypt };
-        encryptCheck.Checked += (s, e) => { Encrypt = true; OnParameterChanged(nameof(Encrypt), Encrypt); };
-        encryptCheck.Unchecked += (s, e) => { Encrypt = false; OnParameterChanged(nameof(Encrypt), Encrypt); };
-        var bxLabel = new Label { Content = "Blocks X:" };
-        var bxBox = new TextBox { Text = BlocksX.ToString(), Width = 80 };
-        bxBox.TextChanged += (s, e) => { if (int.TryParse(bxBox.Text, out int v) && v > 0) { BlocksX = v; OnParameterChanged(nameof(BlocksX), v); } };
-        var byLabel = new Label { Content = "Blocks Y:" };
-        var byBox = new TextBox { Text = BlocksY.ToString(), Width = 80 };
-        byBox.TextChanged += (s, e) => { if (int.TryParse(byBox.Text, out int v) && v > 0) { BlocksY = v; OnParameterChanged(nameof(BlocksY), v); } };
-        var debugCheck = new CheckBox { Content = "Debug Mode", IsChecked = DebugMode };
-        debugCheck.Checked += (s, e) => { DebugMode = true; OnParameterChanged(nameof(DebugMode), DebugMode); };
-        debugCheck.Unchecked += (s, e) => { DebugMode = false; OnParameterChanged(nameof(DebugMode), DebugMode); };
-        panel.Children.Add(seedLabel);
-        panel.Children.Add(seedBox);
-        panel.Children.Add(encryptCheck);
-        panel.Children.Add(bxLabel);
-        panel.Children.Add(bxBox);
-        panel.Children.Add(byLabel);
-        panel.Children.Add(byBox);
-        panel.Children.Add(debugCheck);
-        return panel;
+        var mainPanel = new StackPanel { Margin = new Thickness(5) };
+
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
+
+        if (resources.Contains("Layer_2"))
+        {
+            mainPanel.Background = resources["Layer_2"] as Brush;
+        }
+
+        var viewModel = CreateViewModel() as EncryptorViewModel;
+        mainPanel.DataContext = viewModel;
+
+        var titleLabel = new Label { Content = "加密设置 (Revised 2)" };
+        if (resources.Contains("TitleLabelStyle"))
+        {
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
+        mainPanel.Children.Add(titleLabel);
+
+        mainPanel.Children.Add(CreateLabel("随机种子 (Seed):", resources));
+        mainPanel.Children.Add(CreateBoundTextBox("Seed", viewModel, resources));
+
+        mainPanel.Children.Add(CreateBoundCheckBox("加密模式 (Encrypt)", "Encrypt", viewModel, resources));
+
+        mainPanel.Children.Add(CreateLabel("横向块数量 (Blocks X):", resources));
+        mainPanel.Children.Add(CreateBoundTextBox("BlocksX", viewModel, resources));
+
+        mainPanel.Children.Add(CreateLabel("纵向块数量 (Blocks Y):", resources));
+        mainPanel.Children.Add(CreateBoundTextBox("BlocksY", viewModel, resources));
+
+        mainPanel.Children.Add(CreateLabel("遮罩水平偏移:", resources));
+        mainPanel.Children.Add(CreateBoundTextBox("MaskOffsetX", viewModel, resources));
+
+        mainPanel.Children.Add(CreateLabel("遮罩垂直偏移:", resources));
+        mainPanel.Children.Add(CreateBoundTextBox("MaskOffsetY", viewModel, resources));
+
+        mainPanel.Children.Add(CreateBoundCheckBox("调试模式 (Debug Mode)", "DebugMode", viewModel, resources));
+
+        return mainPanel;
+    }
+
+    private Label CreateLabel(string content, ResourceDictionary resources)
+    {
+        var label = new Label { Content = content, Margin = new Thickness(0, 10, 0, 2) };
+        if (resources.Contains("DefaultLabelStyle"))
+        {
+            label.Style = resources["DefaultLabelStyle"] as Style;
+        }
+        return label;
+    }
+
+    private TextBox CreateBoundTextBox(string propertyName, object viewModel, ResourceDictionary resources)
+    {
+        var textBox = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+        if (resources.Contains("DefaultTextBoxStyle"))
+        {
+            textBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        textBox.SetBinding(TextBox.TextProperty, new Binding(propertyName) { Source = viewModel, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
+        return textBox;
+    }
+
+    private CheckBox CreateBoundCheckBox(string content, string propertyName, object viewModel, ResourceDictionary resources)
+    {
+        var checkBox = new CheckBox { Content = content, Margin = new Thickness(0, 5, 0, 10) };
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            checkBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
+        checkBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(propertyName) { Source = viewModel, Mode = BindingMode.TwoWay });
+        return checkBox;
     }
 
     public override IScriptViewModel CreateViewModel() => new EncryptorViewModel(this);
     private class EncryptorViewModel : ScriptViewModelBase
     {
-        private readonly BlockScrambleEncryptorScript _s;
-        public EncryptorViewModel(BlockScrambleEncryptorScript s) : base(s) => _s = s;
+        private readonly BlockScrambleEncryptorScriptRV2 _s;
+        public EncryptorViewModel(BlockScrambleEncryptorScriptRV2 s) : base(s) => _s = s;
         public int Seed { get => _s.Seed; set { if (_s.Seed != value) { _s.Seed = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(Seed), _s.Seed, value); } } }
         public bool Encrypt { get => _s.Encrypt; set { if (_s.Encrypt != value) { _s.Encrypt = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(Encrypt), _s.Encrypt, value); } } }
         public int BlocksX { get => _s.BlocksX; set { if (_s.BlocksX != value) { _s.BlocksX = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(BlocksX), _s.BlocksX, value); } } }
         public int BlocksY { get => _s.BlocksY; set { if (_s.BlocksY != value) { _s.BlocksY = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(BlocksY), _s.BlocksY, value); } } }
         public bool DebugMode { get => _s.DebugMode; set { if (_s.DebugMode != value) { _s.DebugMode = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(DebugMode), _s.DebugMode, value); } } }
+        public int MaskOffsetX { get => _s.MaskOffsetX; set { if (_s.MaskOffsetX != value) { _s.MaskOffsetX = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(MaskOffsetX), _s.MaskOffsetX, value); } } }
+        public int MaskOffsetY { get => _s.MaskOffsetY; set { if (_s.MaskOffsetY != value) { _s.MaskOffsetY = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(MaskOffsetY), _s.MaskOffsetY, value); } } }
         public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
-        public override Dictionary<string, object> GetParameterData() => new() { [nameof(Seed)] = Seed, [nameof(Encrypt)] = Encrypt, [nameof(BlocksX)] = BlocksX, [nameof(BlocksY)] = BlocksY, [nameof(DebugMode)] = DebugMode };
-        public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() => { if (d.TryGetValue(nameof(Seed), out var s) && s is int i) Seed = i; if (d.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e; if (d.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt; if (d.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt; if (d.TryGetValue(nameof(DebugMode), out var dm) && dm is bool dbgFlag) DebugMode = dbgFlag; });
-        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; DebugMode = false; });
+        public override Dictionary<string, object> GetParameterData() => new() { [nameof(Seed)] = Seed, [nameof(Encrypt)] = Encrypt, [nameof(BlocksX)] = BlocksX, [nameof(BlocksY)] = BlocksY, [nameof(DebugMode)] = DebugMode, [nameof(MaskOffsetX)] = MaskOffsetX, [nameof(MaskOffsetY)] = MaskOffsetY };
+        public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() => { if (d.TryGetValue(nameof(Seed), out var s) && int.TryParse(s?.ToString(), out int i)) Seed = i; if (d.TryGetValue(nameof(Encrypt), out var b) && bool.TryParse(b?.ToString(), out bool e)) Encrypt = e; if (d.TryGetValue(nameof(BlocksX), out var bx) && int.TryParse(bx?.ToString(), out int bxInt)) BlocksX = bxInt; if (d.TryGetValue(nameof(BlocksY), out var by) && int.TryParse(by?.ToString(), out int byInt)) BlocksY = byInt; if (d.TryGetValue(nameof(DebugMode), out var dm) && bool.TryParse(dm?.ToString(), out bool dbgFlag)) DebugMode = dbgFlag; if (d.TryGetValue(nameof(MaskOffsetX), out var mox) && int.TryParse(mox?.ToString(), out int moxInt)) MaskOffsetX = moxInt; if (d.TryGetValue(nameof(MaskOffsetY), out var moy) && int.TryParse(moy?.ToString(), out int moyInt)) MaskOffsetY = moyInt; });
+        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; DebugMode = false; MaskOffsetX = 0; MaskOffsetY = 0; });
     }
-    public override Dictionary<string, object> SerializeParameters() => new() { [nameof(Seed)] = Seed, [nameof(Encrypt)] = Encrypt, [nameof(BlocksX)] = BlocksX, [nameof(BlocksY)] = BlocksY, [nameof(DebugMode)] = DebugMode };
-    public override void DeserializeParameters(Dictionary<string, object> data) { if (data.TryGetValue(nameof(Seed), out var s) && s is int i) Seed = i; if (data.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e; if (data.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt; if (data.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt; if (data.TryGetValue(nameof(DebugMode), out var dm) && dm is bool dbgFlag) DebugMode = dbgFlag; }
+    public override Dictionary<string, object> SerializeParameters() => new() { [nameof(Seed)] = Seed, [nameof(Encrypt)] = Encrypt, [nameof(BlocksX)] = BlocksX, [nameof(BlocksY)] = BlocksY, [nameof(DebugMode)] = DebugMode, [nameof(MaskOffsetX)] = MaskOffsetX, [nameof(MaskOffsetY)] = MaskOffsetY };
+    public override void DeserializeParameters(Dictionary<string, object> data) { if (data.TryGetValue(nameof(Seed), out var s) && int.TryParse(s?.ToString(), out int i)) Seed = i; if (data.TryGetValue(nameof(Encrypt), out var b) && bool.TryParse(b?.ToString(), out bool e)) Encrypt = e; if (data.TryGetValue(nameof(BlocksX), out var bx) && int.TryParse(bx?.ToString(), out int bxInt)) BlocksX = bxInt; if (data.TryGetValue(nameof(BlocksY), out var by) && int.TryParse(by?.ToString(), out int byInt)) BlocksY = byInt; if (data.TryGetValue(nameof(DebugMode), out var dm) && bool.TryParse(dm?.ToString(), out bool dbgFlag)) DebugMode = dbgFlag; if (data.TryGetValue(nameof(MaskOffsetX), out var mox) && int.TryParse(mox?.ToString(), out int moxInt)) MaskOffsetX = moxInt; if (data.TryGetValue(nameof(MaskOffsetY), out var moy) && int.TryParse(moy?.ToString(), out int moyInt)) MaskOffsetY = moyInt; }
     public override async Task OnParameterChangedAsync(string parameterName, object oldValue, object newValue) { await Task.CompletedTask; }
 }

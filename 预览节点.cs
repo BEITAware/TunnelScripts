@@ -5,12 +5,13 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Resources;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
 [RevivalScript(
     Name = "预览节点",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "将图像发送到主程序的预览系统",
     Version = "1.0",
     Category = "输入输出",
@@ -233,19 +234,39 @@ public class PreviewNodeScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+
+        foreach (var path in resourcePaths)
+        {
+            try
             {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+            }
+            catch (Exception)
+            {
+                // 如果资源加载失败，可以记录日志，但这里我们选择静默处理
+            }
+        }
+        
+        // 使用资源字典中的Layer_2画刷
+        if (resources.Contains("Layer_2"))
+        {
+            mainPanel.Background = resources["Layer_2"] as Brush;
+        }
+        else
+        {
+            // 回退到默认样式
+            mainPanel.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF1A1F28"));
+        }
 
         // 创建并设置ViewModel作为DataContext
         var viewModel = CreateViewModel() as PreviewNodeViewModel;
@@ -255,11 +276,11 @@ public class PreviewNodeScript : RevivalScriptBase
         var titleLabel = new Label
         {
             Content = "预览设置",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
         };
+        if (resources.Contains("TitleLabelStyle"))
+        {
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleLabel);
 
         // 启用预览复选框
@@ -267,11 +288,11 @@ public class PreviewNodeScript : RevivalScriptBase
         {
             Content = "启用预览",
             Margin = new Thickness(0, 5, 0, 10),
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
         };
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            enableCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
 
         // 使用数据绑定将CheckBox的IsChecked绑定到ViewModel的EnablePreview属性
         var enableBinding = new System.Windows.Data.Binding("EnablePreview")
@@ -288,23 +309,32 @@ public class PreviewNodeScript : RevivalScriptBase
         var titleTextLabel = new Label
         {
             Content = "预览标题:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
         };
+        if (resources.Contains("DefaultLabelStyle"))
+        {
+            titleTextLabel.Style = resources["DefaultLabelStyle"] as Style;
+        }
         mainPanel.Children.Add(titleTextLabel);
 
         var titleTextBox = new TextBox
         {
             Margin = new Thickness(0, 0, 0, 10),
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F0F0")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#333333")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28")),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6, 4, 6, 4),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
         };
+        
+        // 尝试应用主程序的TextBox资源
+        if (resources.Contains("DefaultTextBoxStyle"))
+        {
+            titleTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        else
+        {
+            // Fallback styles if resource fails to load
+            titleTextBox.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF1A1F28"));
+            titleTextBox.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF"));
+            titleTextBox.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28"));
+            titleTextBox.BorderThickness = new Thickness(1);
+            titleTextBox.Padding = new Thickness(6, 4, 6, 4);
+        }
 
         // 使用数据绑定将TextBox的Text绑定到ViewModel的PreviewTitle属性
         var titleBinding = new System.Windows.Data.Binding("PreviewTitle")
@@ -324,10 +354,11 @@ public class PreviewNodeScript : RevivalScriptBase
         {
             Content = "自动缩放",
             Margin = new Thickness(0, 0, 0, 5),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
         };
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            autoScaleCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
 
         // 使用数据绑定将CheckBox的IsChecked绑定到ViewModel的AutoScale属性
         var autoScaleBinding = new System.Windows.Data.Binding("AutoScale")
@@ -342,10 +373,11 @@ public class PreviewNodeScript : RevivalScriptBase
         {
             Content = "显示图像信息",
             Margin = new Thickness(0, 0, 0, 5),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
         };
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            showInfoCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
 
         // 使用数据绑定将CheckBox的IsChecked绑定到ViewModel的ShowInfo属性
         var showInfoBinding = new System.Windows.Data.Binding("ShowInfo")
@@ -363,23 +395,42 @@ public class PreviewNodeScript : RevivalScriptBase
         // 状态信息
         var statusPanel = new Border
         {
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F8FF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
             Margin = new Thickness(0, 10, 0, 0),
             Padding = new Thickness(8)
         };
+        
+        // 尝试应用主程序的资源
+        try
+        {
+            if (resources.Contains("Layer_2"))
+            {
+                statusPanel.Background = resources["Layer_2"] as Brush;
+                statusPanel.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28"));
+            }
+            else
+            {
+                statusPanel.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F8FF"));
+                statusPanel.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28"));
+            }
+        }
+        catch
+        {
+            // 如果加载失败，使用默认样式
+            statusPanel.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F0F8FF"));
+            statusPanel.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1F28"));
+        }
 
         var statusText = new TextBlock
         {
             Text = "💡 此节点将图像发送到主程序的预览窗口。\n" +
                    "主程序会自动查找名为'预览节点'的节点并显示其输出。",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
         };
+        if (resources.Contains("StatusTextBlockStyle"))
+        {
+            statusText.Style = resources["StatusTextBlockStyle"] as Style;
+        }
 
         statusPanel.Child = statusText;
         mainPanel.Children.Add(statusPanel);

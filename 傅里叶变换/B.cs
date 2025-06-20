@@ -12,7 +12,7 @@ using Rect = OpenCvSharp.Rect;
 
 [RevivalScript(
     Name = "傅里叶变换A",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "傅里叶变换 - 生成幅度谱和相位谱，支持RGBA格式",
     Version = "1.0",
     Category = "频域处理",
@@ -369,12 +369,13 @@ public class FourierTransformScript : RevivalScriptBase
         int cx = dft.Cols / 2;
         int cy = dft.Rows / 2;
 
-        Mat q0 = new Mat(dft, new Rect(0, 0, cx, cy));       // 左上
-        Mat q1 = new Mat(dft, new Rect(cx, 0, cx, cy));      // 右上
-        Mat q2 = new Mat(dft, new Rect(0, cy, cx, cy));      // 左下
-        Mat q3 = new Mat(dft, new Rect(cx, cy, cx, cy));     // 右下
+        Mat q0 = new Mat(dft, new Rect(0, 0, cx, cy));
+        Mat q1 = new Mat(dft, new Rect(cx, 0, cx, cy));
+        Mat q2 = new Mat(dft, new Rect(0, cy, cx, cy));
+        Mat q3 = new Mat(dft, new Rect(cx, cy, cx, cy));
 
         Mat tmp = new Mat();
+
         q0.CopyTo(tmp);
         q3.CopyTo(q0);
         tmp.CopyTo(q3);
@@ -390,123 +391,51 @@ public class FourierTransformScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
         var viewModel = CreateViewModel() as FourierTransformViewModel;
         mainPanel.DataContext = viewModel;
 
-        // 标题
-        var titleLabel = new Label
-        {
-            Content = "傅里叶变换",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "傅里叶变换设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 创建复选框控件
-        mainPanel.Children.Add(CreateCheckBoxControl("应用对数变换", nameof(ApplyLogTransform), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("零频率居中", nameof(CenterFFT), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("存储元数据", nameof(StoreMetadata), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("应用汉宁窗", nameof(ApplyWindow), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("增强预览效果", nameof(EnhancePreview), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("变换Alpha通道", nameof(TransformAlpha), viewModel));
-        mainPanel.Children.Add(CreateCheckBoxControl("增强相位谱对比度", nameof(EnhancePhaseContrast), viewModel));
-
-        // 增强预览按钮
-        var enhanceButton = new Button
-        {
-            Content = "增强幅度谱预览",
-            Margin = new Thickness(2, 10, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
-        };
-
-        enhanceButton.Click += (s, e) =>
-        {
-            viewModel?.EnhanceMagnitudePreview();
-        };
-
-        mainPanel.Children.Add(enhanceButton);
-
-        // 重置按钮
-        var resetButton = new Button
-        {
-            Content = "重置所有参数",
-            Margin = new Thickness(2, 5, 2, 2),
-            Padding = new Thickness(10, 5, 10, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                    new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-                },
-                new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-            ),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000")),
-            BorderThickness = new Thickness(1)
-        };
-
-        resetButton.Click += (s, e) =>
-        {
-            viewModel?.ResetToDefault();
-        };
-
-        mainPanel.Children.Add(resetButton);
+        mainPanel.Children.Add(CreateCheckBoxControl("应用对数变换", nameof(viewModel.ApplyLogTransform), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("零频率居中", nameof(viewModel.CenterFFT), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("存储元数据", nameof(viewModel.StoreMetadata), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("应用汉宁窗", nameof(viewModel.ApplyWindow), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("增强预览效果", nameof(viewModel.EnhancePreview), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("变换Alpha通道", nameof(viewModel.TransformAlpha), viewModel, resources));
+        mainPanel.Children.Add(CreateCheckBoxControl("增强相位谱对比度", nameof(viewModel.EnhancePhaseContrast), viewModel, resources));
 
         return mainPanel;
     }
 
-    private StackPanel CreateCheckBoxControl(string label, string propertyName, FourierTransformViewModel viewModel)
+    private CheckBox CreateCheckBoxControl(string content, string propertyName, FourierTransformViewModel viewModel, ResourceDictionary resources)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-
         var checkBox = new CheckBox
         {
-            Content = label,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 0, 5, 0)
+            Content = content,
+            Margin = new Thickness(0, 5, 0, 5)
         };
+        if (resources.Contains("DefaultCheckBoxStyle")) checkBox.Style = resources["DefaultCheckBoxStyle"] as Style;
 
-        // 数据绑定
         var binding = new Binding(propertyName)
         {
             Source = viewModel,
@@ -515,8 +444,7 @@ public class FourierTransformScript : RevivalScriptBase
         };
         checkBox.SetBinding(CheckBox.IsCheckedProperty, binding);
 
-        panel.Children.Add(checkBox);
-        return panel;
+        return checkBox;
     }
 
     public override IScriptViewModel CreateViewModel()

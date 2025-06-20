@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "画布",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "创建指定大小的空白透明画布",
     Version = "1.0",
     Category = "生成器",
@@ -68,160 +68,83 @@ public class CanvasScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式 - 使用interfacepanelbar的渐变背景
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as CanvasViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "画布设置",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "画布设置" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
-        // 宽度设置
-        mainPanel.Children.Add(CreateNumberControl("宽度", nameof(Width), 1, 8192, viewModel));
-
-        // 高度设置
-        mainPanel.Children.Add(CreateNumberControl("高度", nameof(Height), 1, 8192, viewModel));
+        // 宽度和高度设置
+        mainPanel.Children.Add(CreateNumberControl("宽度", nameof(Width), viewModel, resources));
+        mainPanel.Children.Add(CreateNumberControl("高度", nameof(Height), viewModel, resources));
 
         // 预设按钮
         var presetPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 5) };
-        
-        var presetLabel = new Label
-        {
-            Content = "预设尺寸:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+        var presetLabel = new Label { Content = "预设尺寸:" };
+        if (resources.Contains("DefaultLabelStyle")) presetLabel.Style = resources["DefaultLabelStyle"] as Style;
         presetPanel.Children.Add(presetLabel);
-
-        // 预设按钮样式
-        var buttonStyle = new Style(typeof(Button));
-        buttonStyle.Setters.Add(new Setter(Button.MarginProperty, new Thickness(2)));
-        buttonStyle.Setters.Add(new Setter(Button.PaddingProperty, new Thickness(8, 3, 8, 3)));
-        buttonStyle.Setters.Add(new Setter(Button.FontSizeProperty, 10.0));
-        buttonStyle.Setters.Add(new Setter(Button.FontFamilyProperty, new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")));
-        buttonStyle.Setters.Add(new Setter(Button.ForegroundProperty, new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF"))));
-        buttonStyle.Setters.Add(new Setter(Button.BackgroundProperty, new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#1AFFFFFF"), 0.135436),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#17FFFFFF"), 0.487941),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#00000004"), 0.517625),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1F8EAD"), 0.729128)
-            },
-            new System.Windows.Point(0.5, -0.667875), new System.Windows.Point(0.5, 1.66787)
-        )));
-        buttonStyle.Setters.Add(new Setter(Button.BorderBrushProperty, new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF000000"))));
-        buttonStyle.Setters.Add(new Setter(Button.BorderThicknessProperty, new Thickness(1)));
 
         var presets = new[]
         {
-            new { Name = "512×512", Width = 512, Height = 512 },
-            new { Name = "1024×1024", Width = 1024, Height = 1024 },
-            new { Name = "1920×1080", Width = 1920, Height = 1080 },
-            new { Name = "2048×2048", Width = 2048, Height = 2048 }
+            new { Name = "512²", W = 512, H = 512 }, new { Name = "1024²", W = 1024, H = 1024 },
+            new { Name = "1920×1080", W = 1920, H = 1080 }, new { Name = "2K", W = 2048, H = 2048 }
         };
 
         foreach (var preset in presets)
         {
-            var button = new Button
-            {
-                Content = preset.Name,
-                Style = buttonStyle
-            };
-
-            button.Click += (s, e) =>
-            {
-                viewModel.Width = preset.Width;
-                viewModel.Height = preset.Height;
-            };
-
+            var button = new Button { Content = preset.Name, Margin = new Thickness(2) };
+            if (resources.Contains("SelectFileScriptButtonStyle")) button.Style = resources["SelectFileScriptButtonStyle"] as Style;
+            button.Click += (s, e) => { viewModel.Width = preset.W; viewModel.Height = preset.H; };
             presetPanel.Children.Add(button);
         }
-
         mainPanel.Children.Add(presetPanel);
 
         // 信息显示
-        var infoLabel = new Label
-        {
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCCCCC")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 10,
-            Margin = new Thickness(0, 5, 0, 0)
-        };
-
-        var infoBinding = new MultiBinding
-        {
-            StringFormat = "画布尺寸: {0} × {1} 像素"
-        };
+        var infoLabel = new Label { Margin = new Thickness(0, 5, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) infoLabel.Style = resources["DefaultLabelStyle"] as Style;
+        var infoBinding = new MultiBinding { StringFormat = "画布尺寸: {0} × {1} 像素" };
         infoBinding.Bindings.Add(new Binding(nameof(Width)) { Source = viewModel });
         infoBinding.Bindings.Add(new Binding(nameof(Height)) { Source = viewModel });
         infoLabel.SetBinding(Label.ContentProperty, infoBinding);
-
         mainPanel.Children.Add(infoLabel);
 
         return mainPanel;
     }
 
-    private StackPanel CreateNumberControl(string label, string propertyName, int min, int max, CanvasViewModel viewModel)
+    private StackPanel CreateNumberControl(string label, string propertyName, CanvasViewModel viewModel, ResourceDictionary resources)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 5, 0, 5) };
-
-        // 标签
-        var labelControl = new Label
-        {
-            Content = label + ":",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
-        };
+        
+        var labelControl = new Label { Content = label + ":" };
+        if (resources.Contains("DefaultLabelStyle")) labelControl.Style = resources["DefaultLabelStyle"] as Style;
         panel.Children.Add(labelControl);
-
-        // 文本框
-        var textBox = new TextBox
-        {
-            Margin = new Thickness(0, 2, 0, 2),
-            Padding = new Thickness(5, 3, 5, 3),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#000000")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCCCCC")),
-            BorderThickness = new Thickness(1)
-        };
-
-        // 数据绑定
-        var binding = new Binding(propertyName)
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        textBox.SetBinding(TextBox.TextProperty, binding);
-
+        
+        var textBox = new TextBox { Margin = new Thickness(0, 2, 0, 2) };
+        if (resources.Contains("DefaultTextBoxStyle")) textBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        textBox.SetBinding(TextBox.TextProperty, new Binding(propertyName) { Source = viewModel, Mode = BindingMode.TwoWay });
         panel.Children.Add(textBox);
+
         return panel;
     }
 

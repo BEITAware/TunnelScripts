@@ -12,7 +12,7 @@ namespace TNX_Scripts.ScriptPrototypes
     // 新增脚本：用于生成彩色CFA示意图（Bayer / X-Trans 等）
     [RevivalScript(
         Name = "CFA 生成器",
-        Author = "GeneratedByAI",
+        Author = "BEITAware",
         Description = "生成常见彩色 CFA（Bayer、X-Trans）图样",
         Version = "1.0",
         Category = "图像生成",
@@ -150,38 +150,86 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override FrameworkElement CreateParameterControl()
         {
-            var panel = new StackPanel { Margin = new Thickness(5) };
+            var mainPanel = new StackPanel { Margin = new Thickness(5) };
+
+            // 加载所有需要的资源字典
+            var resources = new ResourceDictionary();
+            var resourcePaths = new[]
+            {
+                "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/ComboBoxStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+                "/Tunnel-Next;component/Resources/ScriptsControls/SliderStyles.xaml",
+            };
+
+            foreach (var path in resourcePaths)
+            {
+                try
+                {
+                    resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
+                }
+                catch (Exception)
+                {
+                    // 静默处理资源加载失败
+                }
+            }
+            
+            if (resources.Contains("MainPanelStyle"))
+            {
+                mainPanel.Style = resources["MainPanelStyle"] as Style;
+            }
 
             // 绑定数据源
             var vm = CreateViewModel() as CFAGeneratorViewModel;
-            panel.DataContext = vm;
-
-            panel.Children.Add(new Label { Content = "CFA 生成器", FontWeight = FontWeights.Bold });
+            mainPanel.DataContext = vm;
+            
+            var titleLabel = new Label { Content = "CFA 生成器" };
+            if(resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
+            mainPanel.Children.Add(titleLabel);
 
             // Pattern 下拉框
-            var patternCombo = new ComboBox { ItemsSource = Enum.GetValues(typeof(CFAPatternType)) };
+            var patternLabel = new Label { Content = "CFA 类型:" };
+            if(resources.Contains("DefaultLabelStyle")) patternLabel.Style = resources["DefaultLabelStyle"] as Style;
+            mainPanel.Children.Add(patternLabel);
+
+            var patternCombo = new ComboBox { ItemsSource = Enum.GetValues(typeof(CFAPatternType)), Margin = new Thickness(0,0,0,10) };
+            if(resources.Contains("DefaultComboBoxStyle")) patternCombo.Style = resources["DefaultComboBoxStyle"] as Style;
             patternCombo.SetBinding(ComboBox.SelectedItemProperty, new System.Windows.Data.Binding(nameof(CFAGeneratorViewModel.Pattern)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(patternCombo);
+            mainPanel.Children.Add(patternCombo);
 
             // BlockSize Slider
-            panel.Children.Add(new Label { Content = "块大小:" });
-            var blockSlider = new Slider { Minimum = 1, Maximum = 64, TickFrequency = 1 };
+            var blockSizeLabel = new Label { Content = "块大小:" };
+            if(resources.Contains("DefaultLabelStyle")) blockSizeLabel.Style = resources["DefaultLabelStyle"] as Style;
+            mainPanel.Children.Add(blockSizeLabel);
+
+            var blockSlider = new Slider { Minimum = 1, Maximum = 64, Value = vm.BlockSize, Margin = new Thickness(0,0,0,10) };
+            if(resources.Contains("DefaultSliderStyle")) blockSlider.Style = resources["DefaultSliderStyle"] as Style;
             blockSlider.SetBinding(Slider.ValueProperty, new System.Windows.Data.Binding(nameof(CFAGeneratorViewModel.BlockSize)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(blockSlider);
+            mainPanel.Children.Add(blockSlider);
 
             // BlocksX
-            panel.Children.Add(new Label { Content = "宽度(块):" });
-            var tbX = new TextBox { Width = 60 };
+            var blocksXLabel = new Label { Content = "宽度(块):" };
+            if(resources.Contains("DefaultLabelStyle")) blocksXLabel.Style = resources["DefaultLabelStyle"] as Style;
+            mainPanel.Children.Add(blocksXLabel);
+
+            var tbX = new TextBox { Margin = new Thickness(0,0,0,10) };
+            if(resources.Contains("DefaultTextBoxStyle")) tbX.Style = resources["DefaultTextBoxStyle"] as Style;
             tbX.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(CFAGeneratorViewModel.BlocksX)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(tbX);
+            mainPanel.Children.Add(tbX);
 
             // BlocksY
-            panel.Children.Add(new Label { Content = "高度(块):" });
-            var tbY = new TextBox { Width = 60 };
+            var blocksYLabel = new Label { Content = "高度(块):" };
+            if(resources.Contains("DefaultLabelStyle")) blocksYLabel.Style = resources["DefaultLabelStyle"] as Style;
+            mainPanel.Children.Add(blocksYLabel);
+            
+            var tbY = new TextBox { Margin = new Thickness(0,0,0,10) };
+            if(resources.Contains("DefaultTextBoxStyle")) tbY.Style = resources["DefaultTextBoxStyle"] as Style;
             tbY.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(CFAGeneratorViewModel.BlocksY)) { Mode = System.Windows.Data.BindingMode.TwoWay });
-            panel.Children.Add(tbY);
+            mainPanel.Children.Add(tbY);
 
-            return panel;
+            return mainPanel;
         }
 
         public override IScriptViewModel CreateViewModel()

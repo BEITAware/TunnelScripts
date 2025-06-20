@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "常量",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "提供一个数值常量：创建1x1像素的RGBA图像，填充用户指定的常量值",
     Version = "1.0",
     Category = "数学",
@@ -65,77 +65,52 @@ public class ConstantScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as ConstantViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "数值常量",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "数值常量" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
         // 数值输入框
-        var valueLabel = new Label
-        {
-            Content = "数值:",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Margin = new Thickness(5, 10, 5, 0)
-        };
+        var valueLabel = new Label { Content = "数值:", Margin = new Thickness(0, 10, 0, 0) };
+        if(resources.Contains("DefaultLabelStyle")) valueLabel.Style = resources["DefaultLabelStyle"] as Style;
         mainPanel.Children.Add(valueLabel);
 
-        var valueTextBox = new TextBox
-        {
-            Margin = new Thickness(5, 0, 5, 5),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11,
-            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF2D3748")),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF4A5568")),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(5, 3, 5, 3)
-        };
-
-        var valueBinding = new Binding(nameof(Value))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        valueTextBox.SetBinding(TextBox.TextProperty, valueBinding);
+        var valueTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 5) };
+        if(resources.Contains("DefaultTextBoxStyle")) valueTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        valueTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.Value)) { Mode = BindingMode.TwoWay });
         mainPanel.Children.Add(valueTextBox);
 
         // 说明文本
-        var descriptionLabel = new Label
+        var descriptionText = new TextBlock
         {
-            Content = "输入数值常量，将创建1x1像素的RGBA图像",
-            FontSize = 10,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCFFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            Margin = new Thickness(5, 0, 5, 10)
+            Text = "输入数值常量，将创建1x1像素的RGBA图像",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 5)
         };
-        mainPanel.Children.Add(descriptionLabel);
+        if (resources.Contains("StatusTextBlockStyle")) descriptionText.Style = resources["StatusTextBlockStyle"] as Style;
+        mainPanel.Children.Add(descriptionText);
 
         return mainPanel;
     }

@@ -7,6 +7,7 @@
     "WindowsBase.dll",
     "System.Drawing.dll",
     "System.Diagnostics.Process.dll",
-    "System.Windows.Forms.dll"
+    "System.Windows.Forms.dll",
+    "System.Private.Uri.dll"
   ]
 }

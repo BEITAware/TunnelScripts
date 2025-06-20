@@ -5,11 +5,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 
 [RevivalScript(
-    Name = "混淆图像-Revised",
-    Author = "Your Name",
+    Name = "混淆图像",
+    Author = "BEITAware",
     Description = "基于 16×16 分块、块/通道可逆打乱的图像加密脚本",
     Version = "1.0",
     Category = "Security",
@@ -28,12 +29,6 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
 
     [ScriptParameter(DisplayName = "块行数", Description = "图像高方向块数量", Order = 3)]
     public int BlocksY { get; set; } = 32;
-
-    [ScriptParameter(DisplayName = "修复伪影", Description = "解密后对块边缘进行平滑处理以减少压缩伪影", Order = 4)]
-    public bool SmoothArtifacts { get; set; } = true;
-
-    [ScriptParameter(DisplayName = "修复强度", Description = "边缘平滑的宽度（像素 > 0）", Order = 5)]
-    public int SmoothWidth { get; set; } = 2;
 
     // --------------- 端口定义 --------------
     public override Dictionary<string, PortDefinition> GetInputPorts()
@@ -114,12 +109,6 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             }
         }
 
-        // 如果解密，则选择性平滑块边界以减少压缩伪影
-        if (!Encrypt && SmoothArtifacts && SmoothWidth > 0)
-        {
-            SmoothBlockBoundaries(dst, blockW, blockH, blocksX, blocksY, SmoothWidth);
-        }
-
         outputs["f32bmp"] = dst;
         cropped.Dispose();
         return outputs;
@@ -176,126 +165,95 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         return merged;
     }
 
-    /// <summary>
-    /// 在解密后平滑块边界以减少压缩伪影
-    /// </summary>
-    private static void SmoothBlockBoundaries(Mat image, int blockW, int blockH, int blocksX, int blocksY, int smoothWidth)
-    {
-        if (smoothWidth <= 0) return;
-
-        // 内核大小必须为奇数。我们使用的内核大小约为平滑宽度的两倍，以确保效果。
-        int ksize = (smoothWidth * 2) + 1;
-
-        // 平滑水平边界
-        for (int by = 1; by < blocksY; by++)
-        {
-            int y_seam = by * blockH;
-            
-            // 定义一个以接缝为中心、宽度为 smoothWidth * 2 的ROI
-            int roiY = Math.Max(0, y_seam - smoothWidth);
-            int roiHeight = Math.Min(image.Height - roiY, smoothWidth * 2);
-            if (roiHeight <= ksize) continue; // ROI太小则跳过
-
-            OpenCvSharp.Rect seamRoi = new OpenCvSharp.Rect(0, roiY, image.Width, roiHeight);
-            using (Mat roiMat = new Mat(image, seamRoi))
-            {
-                // 仅在垂直方向上应用高斯模糊
-                Cv2.GaussianBlur(roiMat, roiMat, new OpenCvSharp.Size(1, ksize), 0);
-            }
-        }
-
-        // 平滑垂直边界
-        for (int bx = 1; bx < blocksX; bx++)
-        {
-            int x_seam = bx * blockW;
-
-            // 定义ROI
-            int roiX = Math.Max(0, x_seam - smoothWidth);
-            int roiWidth = Math.Min(image.Width - roiX, smoothWidth * 2);
-            if (roiWidth <= ksize) continue; // ROI太小则跳过
-
-            OpenCvSharp.Rect seamRoiV = new OpenCvSharp.Rect(roiX, 0, roiWidth, image.Height);
-            using (Mat roiMat = new Mat(image, seamRoiV))
-            {
-                // 仅在水平方向上应用高斯模糊
-                Cv2.GaussianBlur(roiMat, roiMat, new OpenCvSharp.Size(ksize, 1), 0);
-            }
-        }
-    }
-
     // --------------- UI 控件 --------------
     public override FrameworkElement CreateParameterControl()
     {
-        var panel = new StackPanel { Orientation = Orientation.Vertical };
+        var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        var seedLabel = new Label { Content = "Seed：" };
-        var seedBox = new TextBox { Text = Seed.ToString(), Width = 120 };
-        seedBox.TextChanged += (s, e) =>
+        // 加载所有需要的资源字典
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
         {
-            if (int.TryParse(seedBox.Text, out int v))
-            {
-                var old = Seed; Seed = v;
-                OnParameterChanged(nameof(Seed), v);
-            }
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml"
         };
 
-        var encryptCheck = new CheckBox { Content = "Encrypt Mode (勾选加密 / 取消解密)", IsChecked = Encrypt };
-        encryptCheck.Checked += (s, e) => { Encrypt = true; OnParameterChanged(nameof(Encrypt), Encrypt); };
-        encryptCheck.Unchecked += (s, e) => { Encrypt = false; OnParameterChanged(nameof(Encrypt), Encrypt); };
-
-        // BlocksX input
-        var bxLabel = new Label { Content = "Blocks X:" };
-        var bxBox = new TextBox { Text = BlocksX.ToString(), Width = 80 };
-        bxBox.TextChanged += (s, e) =>
+        foreach (var path in resourcePaths)
         {
-            if (int.TryParse(bxBox.Text, out int v) && v > 0)
+            try
             {
-                var old = BlocksX; BlocksX = v;
-                OnParameterChanged(nameof(BlocksX), v);
+                resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) });
             }
-        };
+            catch (Exception) { /* 静默处理 */ }
+        }
 
-        // BlocksY input
-        var byLabel = new Label { Content = "Blocks Y:" };
-        var byBox = new TextBox { Text = BlocksY.ToString(), Width = 80 };
-        byBox.TextChanged += (s, e) =>
+        if (resources.Contains("Layer_2"))
         {
-            if (int.TryParse(byBox.Text, out int v) && v > 0)
-            {
-                var old = BlocksY; BlocksY = v;
-                OnParameterChanged(nameof(BlocksY), v);
-            }
-        };
+            mainPanel.Background = resources["Layer_2"] as Brush;
+        }
 
-        panel.Children.Add(seedLabel);
-        panel.Children.Add(seedBox);
-        panel.Children.Add(encryptCheck);
-        panel.Children.Add(bxLabel);
-        panel.Children.Add(bxBox);
-        panel.Children.Add(byLabel);
-        panel.Children.Add(byBox);
+        var viewModel = CreateViewModel() as EncryptorViewModel;
+        mainPanel.DataContext = viewModel;
 
-        // 修复伪影选项
-        var smoothCheck = new CheckBox { Content = "修复压缩伪影", IsChecked = SmoothArtifacts };
-        smoothCheck.Checked += (s, e) => { SmoothArtifacts = true; OnParameterChanged(nameof(SmoothArtifacts), true); };
-        smoothCheck.Unchecked += (s, e) => { SmoothArtifacts = false; OnParameterChanged(nameof(SmoothArtifacts), false); };
-
-        var smoothLabel = new Label { Content = "修复强度:" };
-        var smoothBox = new TextBox { Text = SmoothWidth.ToString(), Width = 80 };
-        smoothBox.TextChanged += (s, e) =>
+        var titleLabel = new Label { Content = "加密设置" };
+        if (resources.Contains("TitleLabelStyle"))
         {
-            if (int.TryParse(smoothBox.Text, out int v) && v > 0)
-            {
-                var old = SmoothWidth; SmoothWidth = v;
-                OnParameterChanged(nameof(SmoothWidth), v);
-            }
-        };
+            titleLabel.Style = resources["TitleLabelStyle"] as Style;
+        }
+        mainPanel.Children.Add(titleLabel);
         
-        panel.Children.Add(smoothCheck);
-        panel.Children.Add(smoothLabel);
-        panel.Children.Add(smoothBox);
+        // Seed
+        mainPanel.Children.Add(CreateLabel("随机种子 (Seed):", resources));
+        var seedBox = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+        if (resources.Contains("DefaultTextBoxStyle"))
+        {
+            seedBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        seedBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding("Seed") { Source = viewModel, Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+        mainPanel.Children.Add(seedBox);
 
-        return panel;
+        // Encrypt Mode
+        var encryptCheck = new CheckBox { Content = "加密模式 (Encrypt Mode)", Margin = new Thickness(0, 5, 0, 10) };
+        if (resources.Contains("DefaultCheckBoxStyle"))
+        {
+            encryptCheck.Style = resources["DefaultCheckBoxStyle"] as Style;
+        }
+        encryptCheck.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding("Encrypt") { Source = viewModel, Mode = System.Windows.Data.BindingMode.TwoWay });
+        mainPanel.Children.Add(encryptCheck);
+
+        // BlocksX
+        mainPanel.Children.Add(CreateLabel("横向块数量 (Blocks X):", resources));
+        var bxBox = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+        if (resources.Contains("DefaultTextBoxStyle"))
+        {
+            bxBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        bxBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding("BlocksX") { Source = viewModel, Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+        mainPanel.Children.Add(bxBox);
+
+        // BlocksY
+        mainPanel.Children.Add(CreateLabel("纵向块数量 (Blocks Y):", resources));
+        var byBox = new TextBox { Margin = new Thickness(0, 2, 0, 10) };
+        if (resources.Contains("DefaultTextBoxStyle"))
+        {
+            byBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        }
+        byBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding("BlocksY") { Source = viewModel, Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+        mainPanel.Children.Add(byBox);
+
+        return mainPanel;
+    }
+
+    private Label CreateLabel(string content, ResourceDictionary resources)
+    {
+        var label = new Label { Content = content };
+        if (resources.Contains("DefaultLabelStyle"))
+        {
+            label.Style = resources["DefaultLabelStyle"] as Style;
+        }
+        return label;
     }
 
     // --------------- ViewModel ------------
@@ -330,18 +288,6 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             set { if (_s.BlocksY != value) { var old = _s.BlocksY; _s.BlocksY = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(BlocksY), old, value); } }
         }
 
-        public bool SmoothArtifacts
-        {
-            get => _s.SmoothArtifacts;
-            set { if (_s.SmoothArtifacts != value) { var old = _s.SmoothArtifacts; _s.SmoothArtifacts = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(SmoothArtifacts), old, value); } }
-        }
-
-        public int SmoothWidth
-        {
-            get => _s.SmoothWidth;
-            set { if (_s.SmoothWidth != value) { var old = _s.SmoothWidth; _s.SmoothWidth = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(SmoothWidth), old, value); } }
-        }
-
         public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
         public override Dictionary<string, object> GetParameterData()
@@ -351,9 +297,7 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
                 [nameof(Seed)] = Seed,
                 [nameof(Encrypt)] = Encrypt,
                 [nameof(BlocksX)] = BlocksX,
-                [nameof(BlocksY)] = BlocksY,
-                [nameof(SmoothArtifacts)] = SmoothArtifacts,
-                [nameof(SmoothWidth)] = SmoothWidth
+                [nameof(BlocksY)] = BlocksY
             };
         }
         public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() =>
@@ -362,10 +306,8 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             if (d.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
             if (d.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt;
             if (d.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt;
-            if (d.TryGetValue(nameof(SmoothArtifacts), out var sa) && sa is bool saBool) SmoothArtifacts = saBool;
-            if (d.TryGetValue(nameof(SmoothWidth), out var sw) && sw is int swInt) SmoothWidth = swInt;
         });
-        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; SmoothArtifacts = true; SmoothWidth = 2; });
+        public override async Task ResetToDefaultAsync() => await RunOnUIThreadAsync(() => { Seed = 12345; Encrypt = true; BlocksX = 32; BlocksY = 32; });
     }
 
     // ------------- 序列化支持 -------------
@@ -376,9 +318,7 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
             [nameof(Seed)] = Seed,
             [nameof(Encrypt)] = Encrypt,
             [nameof(BlocksX)] = BlocksX,
-            [nameof(BlocksY)] = BlocksY,
-            [nameof(SmoothArtifacts)] = SmoothArtifacts,
-            [nameof(SmoothWidth)] = SmoothWidth
+            [nameof(BlocksY)] = BlocksY
         };
     }
 
@@ -388,8 +328,6 @@ public class BlockScrambleEncryptorScript : RevivalScriptBase
         if (data.TryGetValue(nameof(Encrypt), out var b) && b is bool e) Encrypt = e;
         if (data.TryGetValue(nameof(BlocksX), out var bx) && bx is int bxInt) BlocksX = bxInt;
         if (data.TryGetValue(nameof(BlocksY), out var by) && by is int byInt) BlocksY = byInt;
-        if (data.TryGetValue(nameof(SmoothArtifacts), out var sa) && sa is bool saBool) SmoothArtifacts = saBool;
-        if (data.TryGetValue(nameof(SmoothWidth), out var sw) && sw is int swInt) SmoothWidth = swInt;
     }
 
     // ------------- 参数变化处理 -------------

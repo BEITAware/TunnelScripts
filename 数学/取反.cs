@@ -10,7 +10,7 @@ using OpenCvSharp;
 
 [RevivalScript(
     Name = "取反",
-    Author = "Revival Scripts",
+    Author = "BEITAware",
     Description = "像素取反：对输入图像进行像素取反操作，可选择是否包含Alpha通道",
     Version = "1.0",
     Category = "数学",
@@ -27,7 +27,7 @@ public class InvertScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像")
         };
     }
 
@@ -165,66 +165,52 @@ public class InvertScript : RevivalScriptBase
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
 
-        // 应用Aero主题样式
-        mainPanel.Background = new LinearGradientBrush(
-            new GradientStopCollection
-            {
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1A1F28"), 0),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF1C2432"), 0.510204),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE1C2533"), 0.562152),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE30445F"), 0.87013),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FE384F6C"), 0.918367),
-                new GradientStop((Color)ColorConverter.ConvertFromString("#FF405671"), 0.974026)
-            },
-            new System.Windows.Point(0.499999, 0), new System.Windows.Point(0.499999, 1)
-        );
+        // 加载资源
+        var resources = new ResourceDictionary();
+        var resourcePaths = new[]
+        {
+            "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBlockStyles.xaml"
+        };
+        foreach (var path in resourcePaths)
+        {
+            try { resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(path, UriKind.Relative) }); }
+            catch { /* 静默处理 */ }
+        }
 
-        // 创建ViewModel
+        if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
+
+        // ViewModel
         var viewModel = CreateViewModel() as InvertViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label
-        {
-            Content = "像素取反",
-            FontWeight = FontWeights.Bold,
-            FontSize = 12,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial")
-        };
+        var titleLabel = new Label { Content = "像素取反" };
+        if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
 
         // Alpha通道选项
         var alphaCheckBox = new CheckBox
         {
             Content = "包含Alpha通道",
-            Margin = new Thickness(5, 10, 5, 5),
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            FontSize = 11
+            Margin = new Thickness(0, 10, 0, 5),
         };
-
-        // 数据绑定
-        var binding = new Binding(nameof(IncludeAlpha))
-        {
-            Source = viewModel,
-            Mode = BindingMode.TwoWay,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-        };
-        alphaCheckBox.SetBinding(CheckBox.IsCheckedProperty, binding);
-
+        if(resources.Contains("DefaultCheckBoxStyle")) alphaCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
+        alphaCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.IncludeAlpha)) { Mode = BindingMode.TwoWay });
         mainPanel.Children.Add(alphaCheckBox);
 
         // 说明文本
-        var descriptionLabel = new Label
+        var descriptionText = new TextBlock
         {
-            Content = "勾选后将对Alpha通道也进行取反操作",
-            FontSize = 10,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CCFFFFFF")),
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
-            Margin = new Thickness(5, 0, 5, 10)
+            Text = "勾选后将对Alpha通道也进行取反操作",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 5)
         };
-        mainPanel.Children.Add(descriptionLabel);
+        if (resources.Contains("StatusTextBlockStyle")) descriptionText.Style = resources["StatusTextBlockStyle"] as Style;
+        mainPanel.Children.Add(descriptionText);
 
         return mainPanel;
     }
