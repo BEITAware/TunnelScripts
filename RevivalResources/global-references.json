@@ -8,6 +8,7 @@
     "System.Drawing.dll",
     "System.Diagnostics.Process.dll",
     "System.Windows.Forms.dll",
-    "System.Private.Uri.dll"
+    "System.Private.Uri.dll",
+    "OpenCvSharp4.WpfExtensions.dll"
   ]
 }
