@@ -240,7 +240,7 @@ namespace TNX_Scripts.ScriptPrototypes
                     var old = GenScript.Type;
                     GenScript.Type = value;
                     OnPropertyChanged();
-                    NotifyChanged(nameof(Type), old, value);
+                    NotifyParameterChanged(nameof(Type), value);
                 }
             }
         }
@@ -255,7 +255,7 @@ namespace TNX_Scripts.ScriptPrototypes
                     var old = GenScript.Width;
                     GenScript.Width = Math.Max(1, value);
                     OnPropertyChanged();
-                    NotifyChanged(nameof(Width), old, value);
+                    NotifyParameterChanged(nameof(Width), value);
                 }
             }
         }
@@ -270,7 +270,7 @@ namespace TNX_Scripts.ScriptPrototypes
                     var old = GenScript.Height;
                     GenScript.Height = Math.Max(1, value);
                     OnPropertyChanged();
-                    NotifyChanged(nameof(Height), old, value);
+                    NotifyParameterChanged(nameof(Height), value);
                 }
             }
         }
@@ -280,12 +280,12 @@ namespace TNX_Scripts.ScriptPrototypes
             get => GenScript.Mean;
             set
             {
-                if (Math.Abs(GenScript.Mean - value) > 1e-6)
+                if (Math.Abs(GenScript.Mean - value) > 0.001)
                 {
                     var old = GenScript.Mean;
-                    GenScript.Mean = Math.Clamp(value, 0, 1);
+                    GenScript.Mean = value;
                     OnPropertyChanged();
-                    NotifyChanged(nameof(Mean), old, value);
+                    NotifyParameterChanged(nameof(Mean), value);
                 }
             }
         }
@@ -295,21 +295,21 @@ namespace TNX_Scripts.ScriptPrototypes
             get => GenScript.StdDev;
             set
             {
-                if (Math.Abs(GenScript.StdDev - value) > 1e-6)
+                if (Math.Abs(GenScript.StdDev - value) > 0.001)
                 {
                     var old = GenScript.StdDev;
-                    GenScript.StdDev = Math.Clamp(value, 0, 1);
+                    GenScript.StdDev = value;
                     OnPropertyChanged();
-                    NotifyChanged(nameof(StdDev), old, value);
+                    NotifyParameterChanged(nameof(StdDev), value);
                 }
             }
         }
 
-        private void NotifyChanged(string name, object oldVal, object newVal)
+        private void NotifyParameterChanged(string parameterName, object value)
         {
-            if (GenScript is RevivalScriptBase rsb)
+            if (Script is RevivalScriptBase rsb)
             {
-                _ = rsb.OnParameterChangedAsync(name, oldVal, newVal);
+                rsb.OnParameterChanged(parameterName, value);
             }
         }
 
