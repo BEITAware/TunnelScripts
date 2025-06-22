@@ -24,10 +24,10 @@ public class ChannelCompositionRGBAScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["channelR"] = new PortDefinition("f32bmp", false, "R通道输入"),
-            ["channelG"] = new PortDefinition("f32bmp", false, "G通道输入"),
-            ["channelB"] = new PortDefinition("f32bmp", false, "B通道输入"),
-            ["channelA"] = new PortDefinition("f32bmp", false, "A通道输入")
+            ["channelR"] = new PortDefinition("ChannelR", false, "R通道（单通道）"),
+            ["channelG"] = new PortDefinition("ChannelG", false, "G通道（单通道）"),
+            ["channelB"] = new PortDefinition("ChannelB", false, "B通道（单通道）"),
+            ["channelA"] = new PortDefinition("ChannelA", false, "A通道（单通道）")
         };
     }
 

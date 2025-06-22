@@ -71,11 +71,20 @@ public class BasicProcessingScript : RevivalScriptBase
             return new Dictionary<string, object> { ["f32bmp"] = null };
         }
 
+        // 捕获参数快照，确保整个处理周期一致
+        double pBrightness = Brightness;
+        double pContrast = Contrast;
+        double pSaturation = Saturation;
+        double pHue = Hue;
+        double pWBR = WhiteBalanceR;
+        double pWBG = WhiteBalanceG;
+        double pWBB = WhiteBalanceB;
+
         // 检查是否需要处理
-        bool needProcessing = Math.Abs(Brightness) > 0.001 || Math.Abs(Contrast) > 0.001 ||
-                             Math.Abs(Saturation) > 0.001 || Math.Abs(Hue) > 0.001 ||
-                             Math.Abs(WhiteBalanceR - 1.0) > 0.001 || Math.Abs(WhiteBalanceG - 1.0) > 0.001 ||
-                             Math.Abs(WhiteBalanceB - 1.0) > 0.001;
+        bool needProcessing = Math.Abs(pBrightness) > 0.001 || Math.Abs(pContrast) > 0.001 ||
+                             Math.Abs(pSaturation) > 0.001 || Math.Abs(pHue) > 0.001 ||
+                             Math.Abs(pWBR - 1.0) > 0.001 || Math.Abs(pWBG - 1.0) > 0.001 ||
+                             Math.Abs(pWBB - 1.0) > 0.001;
 
         if (!needProcessing)
         {
@@ -94,18 +103,32 @@ public class BasicProcessingScript : RevivalScriptBase
             Mat resultMat;
             if (useTiling)
             {
-                resultMat = ProcessWithTiling(workingMat);
+                resultMat = ProcessWithTiling(workingMat, pBrightness, pContrast, pSaturation, pHue, pWBR, pWBG, pWBB);
             }
             else
             {
-                resultMat = ProcessDirectly(workingMat);
+                resultMat = ProcessDirectly(workingMat, pBrightness, pContrast, pSaturation, pHue, pWBR, pWBG, pWBB);
             }
 
             return new Dictionary<string, object> { ["f32bmp"] = resultMat };
         }
         catch (Exception ex)
         {
-            throw new ApplicationException($"基本处理节点处理失败: {ex.Message}", ex);
+            // Add diagnostic information to the exception
+            string analysis = string.Empty;
+            if (inputObj is Mat m && !m.Empty())
+            {
+                try
+                {
+                    Cv2.MinMaxLoc(m, out double min, out double max);
+                    analysis = $"Input Mat Analysis: Size={m.Size()}, Type={m.Type()}, Channels={m.Channels()}, ValueRange=[{min}, {max}].";
+                }
+                catch
+                {
+                    analysis = "Input Mat Analysis failed.";
+                }
+            }
+            throw new ApplicationException($"基本处理节点处理失败: {ex.Message}. {analysis}", ex);
         }
     }
 
@@ -158,12 +181,18 @@ public class BasicProcessingScript : RevivalScriptBase
     /// <summary>
     /// 直接处理小图像
     /// </summary>
-    private Mat ProcessDirectly(Mat inputMat)
+    private Mat ProcessDirectly(
+        Mat inputMat,
+        double brightness,
+        double contrast,
+        double saturation,
+        double hue,
+        double wbR,
+        double wbG,
+        double wbB)
     {
-        Mat resultMat = inputMat.Clone();
-        
         // 分离Alpha通道
-        Mat[] channels = Cv2.Split(resultMat);
+        Mat[] channels = Cv2.Split(inputMat);
         Mat alphaMat = channels[3].Clone();
         
         // 处理RGB通道
@@ -171,86 +200,99 @@ public class BasicProcessingScript : RevivalScriptBase
         Cv2.Merge(new Mat[] { channels[0], channels[1], channels[2] }, rgbMat);
         
         // 应用基本调整
-        ApplyBasicAdjustments(rgbMat);
+        ApplyBasicAdjustments(rgbMat, brightness, contrast);
         
         // 应用HSV调整
-        if (Math.Abs(Saturation) > 0.001 || Math.Abs(Hue) > 0.001)
+        if (Math.Abs(saturation) > 0.001 || Math.Abs(hue) > 0.001)
         {
-            ApplyHSVAdjustments(rgbMat);
+            ApplyHSVAdjustments(rgbMat, saturation, hue);
         }
         
         // 应用白平衡
-        ApplyWhiteBalance(rgbMat);
+        ApplyWhiteBalance(rgbMat, wbR, wbG, wbB);
         
         // 重新合并Alpha通道
         Mat[] finalChannels = Cv2.Split(rgbMat);
         Mat finalMat = new Mat();
         Cv2.Merge(new Mat[] { finalChannels[0], finalChannels[1], finalChannels[2], alphaMat }, finalMat);
         
-        // 清理资源
-        foreach (var ch in channels) ch.Dispose();
-        foreach (var ch in finalChannels) ch.Dispose();
-        alphaMat.Dispose();
-        rgbMat.Dispose();
-        resultMat.Dispose();
-        
-        return finalMat;
+        // 将结果拷贝回原 Mat 并返回原引用，避免多余分配
+        finalMat.CopyTo(inputMat);
+        finalMat.Dispose();
+        return inputMat;
     }
 
     /// <summary>
     /// 分块处理大图像
     /// </summary>
-    private Mat ProcessWithTiling(Mat inputMat)
+    private Mat ProcessWithTiling(
+        Mat inputMat,
+        double brightness,
+        double contrast,
+        double saturation,
+        double hue,
+        double wbR,
+        double wbG,
+        double wbB)
     {
-        const int tileSize = 1024;
-        Mat resultMat = new Mat(inputMat.Size(), inputMat.Type());
+        // ---------- 1. 预备 ----------
+        // 创建最终结果 Mat，与输入尺寸 / 类型 相同
+        var resultMat = new Mat(inputMat.Size(), inputMat.Type());
 
-        // 分离Alpha通道
-        Mat[] channels = Cv2.Split(inputMat);
-        Mat alphaMat = channels[3].Clone();
-
-        for (int y = 0; y < inputMat.Rows; y += tileSize)
+        // 动态 tileSize：长边至少被分成 2 块，且面积 <=1M 像素，最小 256
+        int maxSide = Math.Max(inputMat.Rows, inputMat.Cols);
+        int tileSize = 1024;
+        while (tileSize > 256 && maxSide / tileSize < 2)
         {
-            int yEnd = Math.Min(y + tileSize, inputMat.Rows);
-            for (int x = 0; x < inputMat.Cols; x += tileSize)
-            {
-                int xEnd = Math.Min(x + tileSize, inputMat.Cols);
-
-                // 提取RGB块
-                OpenCvSharp.Rect tileRect = new OpenCvSharp.Rect(x, y, xEnd - x, yEnd - y);
-                Mat rgbTile = new Mat();
-                Cv2.Merge(new Mat[] {
-                    channels[0][tileRect],
-                    channels[1][tileRect],
-                    channels[2][tileRect]
-                }, rgbTile);
-
-                // 处理块
-                ApplyBasicAdjustments(rgbTile);
-
-                if (Math.Abs(Saturation) > 0.001 || Math.Abs(Hue) > 0.001)
-                {
-                    ApplyHSVAdjustments(rgbTile);
-                }
-
-                ApplyWhiteBalance(rgbTile);
-
-                // 将处理后的块放回结果
-                Mat[] tileChannels = Cv2.Split(rgbTile);
-                tileChannels[0].CopyTo(resultMat[tileRect]);
-                tileChannels[1].CopyTo(resultMat[tileRect]);
-                tileChannels[2].CopyTo(resultMat[tileRect]);
-                alphaMat[tileRect].CopyTo(resultMat[tileRect]);
-
-                // 清理
-                rgbTile.Dispose();
-                foreach (var ch in tileChannels) ch.Dispose();
-            }
+            tileSize >>= 1;
         }
 
-        // 清理资源
-        foreach (var ch in channels) ch.Dispose();
-        alphaMat.Dispose();
+        int tilesY = (inputMat.Rows + tileSize - 1) / tileSize;
+        int tilesX = (inputMat.Cols + tileSize - 1) / tileSize;
+        int totalTiles = tilesY * tilesX;
+
+        // 用数组存储处理后的 tile，索引 => (yIdx * tilesX + xIdx)
+        var processedTiles = new Mat[totalTiles];
+
+        // ---------- 2. 并行处理各 tile ----------
+        var parallelOpts = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
+        Parallel.For(0, totalTiles, parallelOpts, idx =>
+        {
+            int yIdx = idx / tilesX;
+            int xIdx = idx % tilesX;
+
+            int y = yIdx * tileSize;
+            int x = xIdx * tileSize;
+            int height = Math.Min(tileSize, inputMat.Rows - y);
+            int width = Math.Min(tileSize, inputMat.Cols - x);
+            var tileRect = new OpenCvSharp.Rect(x, y, width, height);
+
+            // Clone ROI，线程独享
+            var tileRgba = inputMat[tileRect].Clone(); // 独立内存，稍后由主线程释放
+            processedTiles[idx] = ProcessDirectly(tileRgba, brightness, contrast, saturation, hue, wbR, wbG, wbB); // 处理后暂存
+        });
+
+        // ---------- 3. 合并结果（再次并行，ROI 不重叠，因此线程安全） ----------
+        Parallel.For(0, totalTiles, parallelOpts, idx =>
+        {
+            int yIdx = idx / tilesX;
+            int xIdx = idx % tilesX;
+
+            int y = yIdx * tileSize;
+            int x = xIdx * tileSize;
+            int height = Math.Min(tileSize, inputMat.Rows - y);
+            int width = Math.Min(tileSize, inputMat.Cols - x);
+            var tileRect = new OpenCvSharp.Rect(x, y, width, height);
+
+            var tile = processedTiles[idx];
+            if (tile != null)
+            {
+                tile.CopyTo(resultMat[tileRect]);
+                tile.Dispose();
+                processedTiles[idx] = null;
+            }
+        });
 
         return resultMat;
     }
@@ -258,19 +300,19 @@ public class BasicProcessingScript : RevivalScriptBase
     /// <summary>
     /// 应用基本调整（亮度、对比度）
     /// </summary>
-    private void ApplyBasicAdjustments(Mat mat)
+    private void ApplyBasicAdjustments(Mat mat, double brightness, double contrast)
     {
         // 亮度调整
-        if (Math.Abs(Brightness) > 0.001)
+        if (Math.Abs(brightness) > 0.001)
         {
-            double factor = 1.0 + Brightness / 100.0;
+            double factor = 1.0 + brightness / 100.0;
             mat.ConvertTo(mat, -1, factor, 0);
         }
 
         // 对比度调整
-        if (Math.Abs(Contrast) > 0.001)
+        if (Math.Abs(contrast) > 0.001)
         {
-            double factor = (259.0 * (Contrast + 255.0)) / (255.0 * (259.0 - Contrast));
+            double factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast));
             mat.ConvertTo(mat, -1, factor, -factor * 0.5 + 0.5);
         }
 
@@ -282,7 +324,7 @@ public class BasicProcessingScript : RevivalScriptBase
     /// <summary>
     /// 应用HSV调整（饱和度、色调）
     /// </summary>
-    private void ApplyHSVAdjustments(Mat rgbMat)
+    private void ApplyHSVAdjustments(Mat rgbMat, double saturation, double hue)
     {
         Mat hsvMat = new Mat();
         Cv2.CvtColor(rgbMat, hsvMat, ColorConversionCodes.RGB2HSV);
@@ -290,9 +332,9 @@ public class BasicProcessingScript : RevivalScriptBase
         Mat[] hsvChannels = Cv2.Split(hsvMat);
 
         // 色调调整
-        if (Math.Abs(Hue) > 0.001)
+        if (Math.Abs(hue) > 0.001)
         {
-            double hueShift = Hue / 360.0 * 180.0; // OpenCV HSV H范围是0-180
+            double hueShift = hue / 360.0 * 180.0; // OpenCV HSV H范围是0-180
             hsvChannels[0].ConvertTo(hsvChannels[0], -1, 1.0, hueShift);
 
             // 处理色调环绕
@@ -307,9 +349,9 @@ public class BasicProcessingScript : RevivalScriptBase
         }
 
         // 饱和度调整
-        if (Math.Abs(Saturation) > 0.001)
+        if (Math.Abs(saturation) > 0.001)
         {
-            double satFactor = 1.0 + Saturation / 100.0;
+            double satFactor = 1.0 + saturation / 100.0;
             hsvChannels[1].ConvertTo(hsvChannels[1], -1, satFactor, 0);
             Cv2.Threshold(hsvChannels[1], hsvChannels[1], 255, 255, ThresholdTypes.Trunc);
         }
@@ -326,17 +368,17 @@ public class BasicProcessingScript : RevivalScriptBase
     /// <summary>
     /// 应用白平衡调整
     /// </summary>
-    private void ApplyWhiteBalance(Mat rgbMat)
+    private void ApplyWhiteBalance(Mat rgbMat, double wbR, double wbG, double wbB)
     {
-        if (Math.Abs(WhiteBalanceR - 1.0) > 0.001 ||
-            Math.Abs(WhiteBalanceG - 1.0) > 0.001 ||
-            Math.Abs(WhiteBalanceB - 1.0) > 0.001)
+        if (Math.Abs(wbR - 1.0) > 0.001 ||
+            Math.Abs(wbG - 1.0) > 0.001 ||
+            Math.Abs(wbB - 1.0) > 0.001)
         {
             Mat[] channels = Cv2.Split(rgbMat);
 
-            channels[0].ConvertTo(channels[0], -1, WhiteBalanceR, 0);
-            channels[1].ConvertTo(channels[1], -1, WhiteBalanceG, 0);
-            channels[2].ConvertTo(channels[2], -1, WhiteBalanceB, 0);
+            channels[0].ConvertTo(channels[0], -1, wbR, 0);
+            channels[1].ConvertTo(channels[1], -1, wbG, 0);
+            channels[2].ConvertTo(channels[2], -1, wbB, 0);
 
             // 确保值在有效范围内
             foreach (var ch in channels)
