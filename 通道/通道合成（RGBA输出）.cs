@@ -11,8 +11,8 @@ using OpenCvSharp;
 [RevivalScript(
     Name = "通道合成（RGBA输出）",
     Author = "BEITAware",
-    Description = "RGBA 通道合成：从四路输入图像分别提取 R/G/B/A 通道并合成一张 RGBA 图像",
-    Version = "1.0",
+    Description = "RGBA 通道合成：从四路输入图像分别提取 R/G/B/A 通道并合成一张 RGBA 图像（自动归一化整数输入到0-1范围）",
+    Version = "1.1",
     Category = "通道",
     Color = "#FF9933"
 )]
@@ -108,6 +108,10 @@ public class ChannelCompositionRGBAScript : RevivalScriptBase
         Mat[] channels = { channelR, channelG, channelB, channelA };
         Cv2.Merge(channels, resultMat);
 
+        // 限制结果范围到 [0, 1]，避免因输入异常导致溢出
+        Cv2.Min(resultMat, 1.0, resultMat);
+        Cv2.Max(resultMat, 0.0, resultMat);
+
         // 清理临时通道
         channelR.Dispose();
         channelG.Dispose();
@@ -124,18 +128,32 @@ public class ChannelCompositionRGBAScript : RevivalScriptBase
     {
         Mat singleChannel = new Mat();
 
+        // 计算缩放系数：将整数格式归一化到 [0, 1]
+        double scale = 1.0;
+        switch (inputMat.Depth())
+        {
+            case MatType.CV_8U:
+                scale = 1.0 / 255.0;
+                break;
+            case MatType.CV_16U:
+                scale = 1.0 / 65535.0;
+                break;
+            default:
+                scale = 1.0; // 对于 CV_32F 等浮点格式保持原值
+                break;
+        }
+
         if (inputMat.Channels() == 1)
         {
-            // 已经是单通道，直接转换为32位浮点
-            inputMat.ConvertTo(singleChannel, MatType.CV_32F);
+            // 单通道：直接转换为 32 位浮点并应用缩放
+            inputMat.ConvertTo(singleChannel, MatType.CV_32F, scale);
         }
         else
         {
-            // 多通道图像，提取第一个通道
+            // 多通道：提取第一个通道后再转换
             Mat[] channels = Cv2.Split(inputMat);
-            channels[0].ConvertTo(singleChannel, MatType.CV_32F);
-            
-            // 清理临时通道
+            channels[0].ConvertTo(singleChannel, MatType.CV_32F, scale);
+
             foreach (var ch in channels)
             {
                 ch.Dispose();

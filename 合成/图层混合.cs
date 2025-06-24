@@ -7,6 +7,9 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
+using System.Threading.Tasks;
+using System.Threading;
+using System.Threading.Tasks;
 
 [RevivalScript(
     Name = "图层混合",
@@ -70,6 +73,9 @@ public class FlexibleImageBlendScript : RevivalScriptBase
     [ScriptParameter(DisplayName = "启用并行处理", Description = "对大图像启用多线程并行处理")]
     public bool EnableParallelProcessing { get; set; } = true;
 
+    [ScriptParameter(DisplayName = "逆序混合", Description = "是否反转图层混合顺序")]
+    public bool ReverseOrder { get; set; } = false;
+
     public override Dictionary<string, PortDefinition> GetInputPorts()
     {
         return new Dictionary<string, PortDefinition>
@@ -108,7 +114,7 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     var processedMat = new Mat();
                     if (inputMat.Type() != MatType.CV_32FC4)
                     {
-                        // 转换为32位浮点RGBA格式
+                        // 转换为32位浮点RGBA格式，并将8bit值归一化到0-1
                         if (inputMat.Channels() == 3)
                         {
                             // RGB转RGBA，添加Alpha通道
@@ -117,18 +123,22 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                             rgbaChannels[0] = rgbChannels[0]; // R
                             rgbaChannels[1] = rgbChannels[1]; // G
                             rgbaChannels[2] = rgbChannels[2]; // B
-                            rgbaChannels[3] = Mat.Ones(inputMat.Size(), MatType.CV_32F); // A = 1.0
+                            rgbaChannels[3] = new Mat(inputMat.Size(), MatType.CV_8U, Scalar.All(255)); // A = 255
 
-                            Cv2.Merge(rgbaChannels, processedMat);
-                            processedMat.ConvertTo(processedMat, MatType.CV_32FC4);
+                            using (var merged = new Mat())
+                            {
+                                Cv2.Merge(rgbaChannels, merged);
+                                merged.ConvertTo(processedMat, MatType.CV_32FC4, 1.0 / 255.0);
+                            }
 
                             // 清理临时对象
-                            foreach (var channel in rgbChannels) channel.Dispose();
-                            rgbaChannels[3].Dispose();
+                            foreach (var ch in rgbaChannels) ch.Dispose();
+                            foreach (var ch in rgbChannels) ch.Dispose();
                         }
                         else
                         {
-                            inputMat.ConvertTo(processedMat, MatType.CV_32FC4);
+                            double scale = inputMat.Depth() == MatType.CV_8U ? 1.0 / 255.0 : 1.0; // 若已是float则无需缩放
+                            inputMat.ConvertTo(processedMat, MatType.CV_32FC4, scale);
                         }
                     }
                     else
@@ -160,8 +170,13 @@ public class FlexibleImageBlendScript : RevivalScriptBase
         }
         catch (Exception ex)
         {
-            // 记录错误但不抛出异常，返回空结果
-            return new Dictionary<string, object>();
+            // 将错误信息输出到调试控制台，并返回一个包含空Mat的结果，以避免下游节点出错
+            System.Diagnostics.Debug.WriteLine($"图层混合脚本处理失败: {ex.ToString()}");
+            var errorResult = new Mat();
+            return new Dictionary<string, object>
+            {
+                ["Output"] = errorResult
+            };
         }
     }
 
@@ -176,26 +191,41 @@ public class FlexibleImageBlendScript : RevivalScriptBase
         if (images.Count == 1)
             return ApplyGlobalEffects(images[0].Clone());
 
-        // 使用第一个图像作为基础，确保是32位浮点RGBA格式
-        var result = new Mat();
-        images[0].ConvertTo(result, MatType.CV_32FC4);
+        // 根据 ReverseOrder 决定层叠顺序
+        // ReverseOrder == false : 输入顺序视为"上 → 下"，因此需要反向遍历列表（最后一个作为底图）
+        // ReverseOrder == true  : 输入顺序视为"下 → 上"，保持原来的正向遍历
 
-        // 依次混合其他图像
-        for (int i = 1; i < images.Count; i++)
+        IEnumerable<Mat> iterate;
+        if (ReverseOrder)
+        {
+            iterate = images; // 0 -> n-1 （下 → 上）
+        }
+        else
+        {
+            iterate = images.AsEnumerable().Reverse(); // n-1 -> 0 （下 → 上）
+        }
+
+        // 初始化 result 为第一张（底图）
+        var enumerator = iterate.GetEnumerator();
+        enumerator.MoveNext();
+        var first = new Mat();
+        enumerator.Current.ConvertTo(first, MatType.CV_32FC4);
+        var result = first;
+
+        // 依次把更"上层"的图像叠加到 result 上
+        while (enumerator.MoveNext())
         {
             var currentImage = new Mat();
-            images[i].ConvertTo(currentImage, MatType.CV_32FC4);
+            enumerator.Current.ConvertTo(currentImage, MatType.CV_32FC4);
 
-            // 确保图像尺寸一致
             if (result.Size() != currentImage.Size())
             {
                 Cv2.Resize(currentImage, currentImage, result.Size());
             }
 
-            // 执行混合操作
-            var blendedResult = BlendTwoImages(result, currentImage, MixMode, GlobalOpacity);
-            result.Dispose(); // 释放旧的result
-            result = blendedResult;
+            var blended = BlendTwoImages(result, currentImage, MixMode, GlobalOpacity);
+            result.Dispose();
+            result = blended;
 
             currentImage.Dispose();
         }
@@ -221,7 +251,7 @@ public class FlexibleImageBlendScript : RevivalScriptBase
         switch (mode)
         {
             case BlendMode.Normal:
-                Cv2.AddWeighted(baseImage, 1.0 - opacity, blendImage, opacity, 0, result);
+                result = BlendNormal(baseImage, blendImage, opacity);
                 break;
 
             case BlendMode.Average:
@@ -337,6 +367,125 @@ public class FlexibleImageBlendScript : RevivalScriptBase
     #region 混合模式实现
 
     /// <summary>
+    /// 保证 Mat 的数据在内存中连续（IsContinuous），若不连续则克隆一份连续副本
+    /// </summary>
+    private Mat EnsureContinuous(Mat mat)
+    {
+        return mat.IsContinuous() ? mat : mat.Clone();
+    }
+
+    /// <summary>
+    /// 普通混合，采用标准 Source-Over 公式，该公式正确处理Alpha通道
+    /// </summary>
+    private Mat BlendNormal(Mat baseImage, Mat blendImage, float opacity)
+    {
+        var result = new Mat(baseImage.Size(), baseImage.Type());
+
+        // 确保图像为32位浮点RGBA格式，并保证内存连续
+        Mat base32f;
+        if (baseImage.Type() != MatType.CV_32FC4)
+        {
+            base32f = new Mat();
+            baseImage.ConvertTo(base32f, MatType.CV_32FC4);
+        }
+        else
+        {
+            base32f = baseImage.Clone();
+        }
+        base32f = EnsureContinuous(base32f);
+
+        Mat blend32f;
+        if (blendImage.Type() != MatType.CV_32FC4)
+        {
+            blend32f = new Mat();
+            blendImage.ConvertTo(blend32f, MatType.CV_32FC4);
+        }
+        else
+        {
+            blend32f = blendImage.Clone();
+        }
+        blend32f = EnsureContinuous(blend32f);
+
+        result = EnsureContinuous(result);
+
+        unsafe
+        {
+            var basePtr = (float*)base32f.DataPointer;
+            var blendPtr = (float*)blend32f.DataPointer;
+            var resultPtr = (float*)result.DataPointer;
+
+            int totalPixels = base32f.Rows * base32f.Cols;
+
+            // 根据是否启用并行处理来选择执行路径
+            if (EnableParallelProcessing && totalPixels > 10000) // 仅对大图像启用并行
+            {
+                Parallel.For(0, totalPixels, i =>
+                {
+                    ProcessPixel(i, basePtr, blendPtr, resultPtr, opacity);
+                });
+            }
+            else
+            {
+                for (int i = 0; i < totalPixels; i++)
+                {
+                    ProcessPixel(i, basePtr, blendPtr, resultPtr, opacity);
+                }
+            }
+        }
+
+        base32f.Dispose();
+        blend32f.Dispose();
+        return result;
+    }
+
+    private unsafe void ProcessPixel(int i, float* basePtr, float* blendPtr, float* resultPtr, float opacity)
+    {
+        int idx = i * 4;
+
+        // 读取底图(dst)和顶图(src)的Alpha通道
+        float dstA = basePtr[idx + 3];
+        float srcA = blendPtr[idx + 3];
+
+        // 计算顶图的有效Alpha，它受图层自身Alpha和全局不透明度的共同影响
+        float effectiveSrcA = (RespectAlpha ? srcA : 1.0f) * opacity;
+        effectiveSrcA = Math.Max(0.0f, Math.Min(1.0f, effectiveSrcA));
+
+        // 如果顶图完全透明，则结果就是底图，无需计算
+        if (effectiveSrcA < 1e-6f)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                resultPtr[idx + c] = basePtr[idx + c];
+            }
+            return;
+        }
+
+        // 标准的 "Source-Over" Alpha 合成公式
+        float outA = effectiveSrcA + dstA * (1.0f - effectiveSrcA);
+        
+        // 如果输出的alpha极小（几乎完全透明），为避免除零错误，直接输出透明像素
+        if (outA < 1e-6f)
+        {
+            resultPtr[idx] = 0;
+            resultPtr[idx + 1] = 0;
+            resultPtr[idx + 2] = 0;
+            resultPtr[idx + 3] = 0;
+            return;
+        }
+
+        float invOutA = 1.0f / outA;
+
+        // 标准的 "Source-Over" 颜色合成公式（针对非预乘Alpha）
+        for (int c = 0; c < 3; c++)
+        {
+            float srcC = blendPtr[idx + c];
+            float dstC = basePtr[idx + c];
+            resultPtr[idx + c] = (srcC * effectiveSrcA + dstC * dstA * (1.0f - effectiveSrcA)) * invOutA;
+        }
+        resultPtr[idx + 3] = outA;
+    }
+
+    /// <summary>
     /// 正片叠底混合
     /// </summary>
     private Mat BlendMultiply(Mat baseImage, Mat blendImage, float opacity)
@@ -361,21 +510,23 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
-                // RGB通道进行正片叠底
+                // 读取Alpha通道并计算有效不透明度（权重）
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
+                // RGB通道进行正片叠底并使用有效不透明度
                 for (int c = 0; c < 3; c++)
                 {
                     float baseVal = basePtr[idx + c];
                     float blendVal = blendPtr[idx + c];
                     float multiplied = baseVal * blendVal;
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + multiplied * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + multiplied * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -409,6 +560,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha通道并计算有效不透明度（权重）
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行滤色混合: 1 - (1-base) * (1-blend)
                 for (int c = 0; c < 3; c++)
                 {
@@ -416,14 +572,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float screened = 1.0f - (1.0f - baseVal) * (1.0f - blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + screened * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + screened * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -457,6 +610,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha通道并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行叠加混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -473,14 +631,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                         overlayed = 1.0f - 2.0f * (1.0f - baseVal) * (1.0f - blendVal);
                     }
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + overlayed * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + overlayed * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -514,6 +669,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行差值混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -521,14 +681,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float difference = Math.Abs(baseVal - blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + difference * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + difference * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -562,6 +719,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行变暗混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -569,14 +731,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float darkened = Math.Min(baseVal, blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + darkened * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + darkened * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -610,6 +769,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行变亮混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -617,14 +781,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float lightened = Math.Max(baseVal, blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + lightened * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + lightened * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -658,6 +819,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行颜色加深混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -674,14 +840,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                         burned = Math.Max(0.0f, 1.0f - (1.0f - baseVal) / blendVal);
                     }
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + burned * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + burned * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -715,6 +878,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行线性加深混合: base + blend - 1
                 for (int c = 0; c < 3; c++)
                 {
@@ -722,14 +890,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float linearBurned = Math.Max(0.0f, baseVal + blendVal - 1.0f);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + linearBurned * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + linearBurned * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -763,6 +928,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行颜色减淡混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -779,14 +949,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                         dodged = Math.Min(1.0f, baseVal / (1.0f - blendVal));
                     }
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + dodged * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + dodged * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -820,6 +987,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行线性减淡混合: base + blend
                 for (int c = 0; c < 3; c++)
                 {
@@ -827,14 +999,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float linearDodged = Math.Min(1.0f, baseVal + blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + linearDodged * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + linearDodged * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -868,6 +1037,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行柔光混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -884,14 +1058,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                         softLight = 2.0f * baseVal * (1.0f - blendVal) + (float)Math.Sqrt(baseVal) * (2.0f * blendVal - 1.0f);
                     }
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + softLight * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + softLight * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -925,6 +1096,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行强光混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -941,14 +1117,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                         hardLight = 1.0f - 2.0f * (1.0f - baseVal) * (1.0f - blendVal);
                     }
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + hardLight * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + hardLight * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -982,6 +1155,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行排除混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -989,14 +1167,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float excluded = baseVal + blendVal - 2.0f * baseVal * blendVal;
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + excluded * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + excluded * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -1030,6 +1205,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             {
                 int idx = i * 4; // RGBA 4个通道
 
+                // 读取Alpha并计算有效不透明度
+                float baseAlpha = basePtr[idx + 3];
+                float blendAlpha = blendPtr[idx + 3];
+                float effectiveOpacity = RespectAlpha ? opacity * blendAlpha : opacity;
+
                 // RGB通道进行减去混合
                 for (int c = 0; c < 3; c++)
                 {
@@ -1037,14 +1217,11 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                     float blendVal = blendPtr[idx + c];
                     float subtracted = Math.Max(0.0f, baseVal - blendVal);
 
-                    // 应用不透明度混合
-                    resultPtr[idx + c] = baseVal * (1.0f - opacity) + subtracted * opacity;
+                    resultPtr[idx + c] = baseVal * (1.0f - effectiveOpacity) + subtracted * effectiveOpacity;
                 }
 
-                // Alpha通道使用正常混合
-                float baseAlpha = basePtr[idx + 3];
-                float blendAlpha = blendPtr[idx + 3];
-                resultPtr[idx + 3] = baseAlpha * (1.0f - opacity) + blendAlpha * opacity;
+                // Alpha通道混合
+                resultPtr[idx + 3] = baseAlpha * (1.0f - effectiveOpacity) + blendAlpha * effectiveOpacity;
             }
         }
 
@@ -1249,6 +1426,29 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             OnParameterChanged(nameof(EnableParallelProcessing), EnableParallelProcessing);
         };
 
+        // 逆序混合复选框
+        var reverseCheckBox = new CheckBox
+        {
+            Content = "逆序混合",
+            IsChecked = ReverseOrder,
+            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFFFFF")),
+            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Arial"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        reverseCheckBox.Checked += (s, e) =>
+        {
+            var oldValue = ReverseOrder;
+            ReverseOrder = true;
+            OnParameterChanged(nameof(ReverseOrder), ReverseOrder);
+        };
+        reverseCheckBox.Unchecked += (s, e) =>
+        {
+            var oldValue = ReverseOrder;
+            ReverseOrder = false;
+            OnParameterChanged(nameof(ReverseOrder), ReverseOrder);
+        };
+
         // 说明文本
         var description = new TextBlock
         {
@@ -1268,6 +1468,7 @@ public class FlexibleImageBlendScript : RevivalScriptBase
         panel.Children.Add(intensitySlider);
         panel.Children.Add(alphaCheckBox);
         panel.Children.Add(parallelCheckBox);
+        panel.Children.Add(reverseCheckBox);
         panel.Children.Add(description);
 
         return panel;
@@ -1302,6 +1503,10 @@ public class FlexibleImageBlendScript : RevivalScriptBase
                 if (newValue is bool enableParallel)
                     EnableParallelProcessing = enableParallel;
                 break;
+            case nameof(ReverseOrder):
+                if (newValue is bool revOrder)
+                    ReverseOrder = revOrder;
+                break;
         }
         return Task.CompletedTask;
     }
@@ -1314,7 +1519,8 @@ public class FlexibleImageBlendScript : RevivalScriptBase
             [nameof(OutputIntensity)] = OutputIntensity,
             [nameof(GlobalOpacity)] = GlobalOpacity,
             [nameof(RespectAlpha)] = RespectAlpha,
-            [nameof(EnableParallelProcessing)] = EnableParallelProcessing
+            [nameof(EnableParallelProcessing)] = EnableParallelProcessing,
+            [nameof(ReverseOrder)] = ReverseOrder
         };
     }
 
@@ -1349,6 +1555,12 @@ public class FlexibleImageBlendScript : RevivalScriptBase
         {
             EnableParallelProcessing = enableParallel;
         }
+
+        if (data.TryGetValue(nameof(ReverseOrder), out var revOrderValue) &&
+            bool.TryParse(revOrderValue?.ToString(), out var revOrder))
+        {
+            ReverseOrder = revOrder;
+        }
     }
 }
 
@@ -1378,6 +1590,13 @@ public class FlexibleImageBlendViewModel : ScriptViewModelBase
                 if (value is float opacityVal && (opacityVal < 0.0f || opacityVal > 1.0f))
                     return new ScriptValidationResult(false, "全局不透明度必须在0.0到1.0之间");
                 break;
+            case nameof(FlexibleImageBlendScript.EnableParallelProcessing):
+                if (value is bool enableParallel)
+                    return new ScriptValidationResult(true);
+                break;
+            case nameof(FlexibleImageBlendScript.ReverseOrder):
+                // 布尔值无需额外验证
+                return new ScriptValidationResult(true);
         }
         return new ScriptValidationResult(true);
     }
@@ -1400,6 +1619,7 @@ public class FlexibleImageBlendViewModel : ScriptViewModelBase
         _script.GlobalOpacity = 1.0f;
         _script.RespectAlpha = true;
         _script.EnableParallelProcessing = true;
+        _script.ReverseOrder = false;
         return Task.CompletedTask;
     }
 }
