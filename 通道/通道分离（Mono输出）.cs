@@ -24,7 +24,7 @@ public class ChannelSeparationMonoScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像")
         };
     }
 

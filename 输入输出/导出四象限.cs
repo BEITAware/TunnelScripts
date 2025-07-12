@@ -253,7 +253,7 @@ public class ExportQuadrantsScript : RevivalScriptBase
         if (resources.Contains("SelectFileScriptButtonStyle")) browseButton.Style = resources["SelectFileScriptButtonStyle"] as Style;
         browseButton.Click += (s, e) => BrowseDirectory(textBox, viewModel);
         Grid.SetColumn(browseButton, 1);
-        grid.Children.Add(grid);
+        grid.Children.Add(browseButton);
         
         panel.Children.Add(grid);
         return panel;

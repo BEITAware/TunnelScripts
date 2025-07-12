@@ -9,9 +9,9 @@ using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
 [RevivalScript(
-    Name = "取反（带Alpha）",
+    Name = "反相 Alpha",
     Author = "BEITAware",
-    Description = "像素取反：对输入图像进行像素取反操作，包含Alpha通道",
+    Description = "反相图像，包含Alpha通道",
     Version = "1.0",
     Category = "数学",
     Color = "#FF00FF"

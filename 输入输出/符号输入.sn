@@ -1,0 +1,3 @@
+<SymbolNode Name="图像输入（符号）" Color="#2222FF" Category="输入输出">
+  <OutputPort Name="Out" DataType="Any"  IsFlexible="false"/>
+</SymbolNode>
