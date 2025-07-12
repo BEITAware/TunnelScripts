@@ -61,21 +61,25 @@ public class ColorCardSamplingScript : RevivalScriptBase
         {
             // 确保输入是RGBA格式
             Mat workingMat = EnsureRGBAFormat(inputMat);
-            
+
             // 获取色卡四个角点
             var corners = GetColorCheckerCorners(workingMat);
-            
+
             // 计算色块中心点
             var centers = GetColorBlockCenters(corners, Rows, Columns);
-            
+
             // 采样颜色数据
             var sampledColors = SampleColorsFromRegions(workingMat, centers, RegionSize);
-            
+
             // 创建输出图像：每个采样点作为一个像素
             Mat outputMat = CreateSampledDataImage(sampledColors, Rows, Columns);
-            
-            workingMat.Dispose();
-            
+
+            // 只有当workingMat是新创建的副本时才释放
+            if (workingMat != inputMat)
+            {
+                workingMat.Dispose();
+            }
+
             return new Dictionary<string, object> { ["f32bmp"] = outputMat };
         }
         catch (Exception ex)

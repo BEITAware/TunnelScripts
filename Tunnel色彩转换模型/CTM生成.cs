@@ -25,9 +25,6 @@ public class CTMGenerationScript : RevivalScriptBase
     [ScriptParameter(DisplayName = "多项式度数", Description = "多项式回归的度数（1-3）", Order = 0)]
     public int PolynomialDegree { get; set; } = 2;
 
-    [ScriptParameter(DisplayName = "模型保存路径", Description = "CTM模型保存路径", Order = 1)]
-    public string ModelSavePath { get; set; } = "ctm_model.zip";
-
     public string NodeInstanceId { get; set; } = string.Empty;
 
     public override Dictionary<string, PortDefinition> GetInputPorts()
@@ -43,8 +40,8 @@ public class CTMGenerationScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["ctm_forward"] = new PortDefinition("object", false, "正向CTM模型（源→目标）"),
-            ["ctm_reverse"] = new PortDefinition("object", false, "反向CTM模型（目标→源）")
+            ["ColorTransferModelForward"] = new PortDefinition("ColorTransferModel", false, "正向CTM模型（源→目标）"),
+            ["ColorTransferModelReversed"] = new PortDefinition("ColorTransferModel", false, "反向CTM模型（目标→源）")
         };
     }
 
@@ -63,10 +60,25 @@ public class CTMGenerationScript : RevivalScriptBase
         if (!(sourceObj is Mat sourceMat) || sourceMat.Empty() ||
             !(targetObj is Mat targetMat) || targetMat.Empty())
         {
-            return new Dictionary<string, object> 
-            { 
-                ["ctm_forward"] = null,
-                ["ctm_reverse"] = null
+            return new Dictionary<string, object>
+            {
+                ["ColorTransferModelForward"] = null,
+                ["ColorTransferModelReversed"] = null
+            };
+        }
+
+        // 检查Mat对象是否已被释放
+        try
+        {
+            var sourceSize = sourceMat.Size();
+            var targetSize = targetMat.Size();
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["ColorTransferModelForward"] = null,
+                ["ColorTransferModelReversed"] = null
             };
         }
 
@@ -87,33 +99,14 @@ public class CTMGenerationScript : RevivalScriptBase
 
             // 训练正向模型（源→目标）
             var forwardModel = TrainColorTransferModel(mlContext, sourceColors, targetColors, PolynomialDegree);
-            
+
             // 训练反向模型（目标→源）
             var reverseModel = TrainColorTransferModel(mlContext, targetColors, sourceColors, PolynomialDegree);
 
-            // 保存模型（可选）
-            if (!string.IsNullOrEmpty(ModelSavePath))
-            {
-                try
-                {
-                    var forwardPath = Path.ChangeExtension(ModelSavePath, "_forward.zip");
-                    var reversePath = Path.ChangeExtension(ModelSavePath, "_reverse.zip");
-
-                    // 简化保存逻辑，避免复杂的ML.NET API
-                    File.WriteAllText(forwardPath + ".info", "Forward CTM Model");
-                    File.WriteAllText(reversePath + ".info", "Reverse CTM Model");
-                }
-                catch (Exception ex)
-                {
-                    // 保存失败不影响主要功能
-                    // context?.LogMessage($"模型保存失败: {ex.Message}");
-                }
-            }
-
             return new Dictionary<string, object>
             {
-                ["ctm_forward"] = new CTMModel { MLContext = mlContext, Model = forwardModel, Degree = PolynomialDegree },
-                ["ctm_reverse"] = new CTMModel { MLContext = mlContext, Model = reverseModel, Degree = PolynomialDegree }
+                ["ColorTransferModelForward"] = forwardModel,
+                ["ColorTransferModelReversed"] = reverseModel
             };
         }
         catch (Exception ex)
@@ -125,7 +118,7 @@ public class CTMGenerationScript : RevivalScriptBase
     private Vec3f[] ExtractColorData(Mat mat)
     {
         var colors = new List<Vec3f>();
-        
+
         for (int y = 0; y < mat.Rows; y++)
         {
             for (int x = 0; x < mat.Cols; x++)
@@ -135,15 +128,13 @@ public class CTMGenerationScript : RevivalScriptBase
                 colors.Add(new Vec3f(pixel.Item0, pixel.Item1, pixel.Item2));
             }
         }
-        
+
         return colors.ToArray();
     }
 
-    private ITransformer TrainColorTransferModel(MLContext mlContext, Vec3f[] sourceColors, Vec3f[] targetColors, int degree)
+    private CTMModel TrainColorTransferModel(MLContext mlContext, Vec3f[] sourceColors, Vec3f[] targetColors, int degree)
     {
         // 简化的模型训练实现
-        // 在实际应用中，这里应该实现完整的多项式回归训练
-
         // 准备训练数据
         var trainingData = new List<ColorTransferData>();
 
@@ -162,14 +153,32 @@ public class CTMGenerationScript : RevivalScriptBase
 
         var dataView = mlContext.Data.LoadFromEnumerable(trainingData);
 
-        // 简化的线性回归管道
-        var pipeline = mlContext.Transforms.Concatenate("Features", "SourceR", "SourceG", "SourceB")
-            .Append(mlContext.Regression.Trainers.Ols(labelColumnName: "TargetR"));
+        // 创建基础特征管道
+        var featurePipeline = mlContext.Transforms.Concatenate("Features", "SourceR", "SourceG", "SourceB");
 
-        // 训练模型
-        var model = pipeline.Fit(dataView);
+        // 训练R通道模型
+        var rPipeline = featurePipeline.Append(mlContext.Regression.Trainers.FastTree(labelColumnName: "TargetR"));
+        var rModel = rPipeline.Fit(dataView);
 
-        return model;
+        // 训练G通道模型
+        var gPipeline = featurePipeline.Append(mlContext.Regression.Trainers.FastTree(labelColumnName: "TargetG"));
+        var gModel = gPipeline.Fit(dataView);
+
+        // 训练B通道模型
+        var bPipeline = featurePipeline.Append(mlContext.Regression.Trainers.FastTree(labelColumnName: "TargetB"));
+        var bModel = bPipeline.Fit(dataView);
+
+        // 返回完整的CTM模型
+        return new CTMModel
+        {
+            MLContext = mlContext,
+            RModel = rModel,
+            GModel = gModel,
+            BModel = bModel,
+            Degree = degree,
+            SourceColors = sourceColors,
+            TargetColors = targetColors
+        };
     }
 
 
@@ -209,24 +218,14 @@ public class CTMGenerationScript : RevivalScriptBase
         var degreePanel = new StackPanel { Margin = new Thickness(0, 5, 0, 0) };
         var degreeLabel = new Label { Content = "多项式度数" };
         if (resources.Contains("DefaultLabelStyle")) degreeLabel.Style = resources["DefaultLabelStyle"] as Style;
-        
+
         var degreeSlider = new Slider { Minimum = 1, Maximum = 3 };
         if (resources.Contains("DefaultSliderStyle")) degreeSlider.Style = resources["DefaultSliderStyle"] as Style;
         degreeSlider.SetBinding(Slider.ValueProperty, new Binding(nameof(viewModel.PolynomialDegree)) { Mode = BindingMode.TwoWay });
-        
+
         degreePanel.Children.Add(degreeLabel);
         degreePanel.Children.Add(degreeSlider);
         mainPanel.Children.Add(degreePanel);
-
-        // 模型保存路径
-        var pathLabel = new Label { Content = "模型保存路径:", Margin = new Thickness(0, 10, 0, 0) };
-        if (resources.Contains("DefaultLabelStyle")) pathLabel.Style = resources["DefaultLabelStyle"] as Style;
-        mainPanel.Children.Add(pathLabel);
-
-        var pathTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 5) };
-        if (resources.Contains("DefaultTextBoxStyle")) pathTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
-        pathTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.ModelSavePath)) { Mode = BindingMode.TwoWay });
-        mainPanel.Children.Add(pathTextBox);
 
         return mainPanel;
     }
@@ -246,7 +245,6 @@ public class CTMGenerationScript : RevivalScriptBase
         return new Dictionary<string, object>
         {
             [nameof(PolynomialDegree)] = PolynomialDegree,
-            [nameof(ModelSavePath)] = ModelSavePath,
             ["NodeInstanceId"] = NodeInstanceId
         };
     }
@@ -255,8 +253,6 @@ public class CTMGenerationScript : RevivalScriptBase
     {
         if (data.TryGetValue(nameof(PolynomialDegree), out var degree))
             PolynomialDegree = Convert.ToInt32(degree);
-        if (data.TryGetValue(nameof(ModelSavePath), out var path))
-            ModelSavePath = path?.ToString() ?? "ctm_model.zip";
         if (data.TryGetValue("NodeInstanceId", out var nodeId))
             NodeInstanceId = nodeId?.ToString() ?? string.Empty;
     }
@@ -273,11 +269,22 @@ public class CTMGenerationScript : RevivalScriptBase
 // 数据类定义
 public class ColorTransferData
 {
+    [LoadColumn(0)]
     public float SourceR { get; set; }
+
+    [LoadColumn(1)]
     public float SourceG { get; set; }
+
+    [LoadColumn(2)]
     public float SourceB { get; set; }
+
+    [LoadColumn(3)]
     public float TargetR { get; set; }
+
+    [LoadColumn(4)]
     public float TargetG { get; set; }
+
+    [LoadColumn(5)]
     public float TargetB { get; set; }
 }
 
@@ -285,14 +292,19 @@ public class ColorTransferData
 
 public class ColorPrediction
 {
+    [ColumnName("Score")]
     public float Score { get; set; }
 }
 
 public class CTMModel
 {
     public MLContext MLContext { get; set; }
-    public ITransformer Model { get; set; }
+    public ITransformer RModel { get; set; }  // R通道模型
+    public ITransformer GModel { get; set; }  // G通道模型
+    public ITransformer BModel { get; set; }  // B通道模型
     public int Degree { get; set; }
+    public Vec3f[] SourceColors { get; set; }  // 源颜色样本
+    public Vec3f[] TargetColors { get; set; }  // 目标颜色样本
 }
 
 public class CTMGenerationViewModel : ScriptViewModelBase
@@ -313,19 +325,7 @@ public class CTMGenerationViewModel : ScriptViewModelBase
         }
     }
 
-    public string ModelSavePath
-    {
-        get => CTMGenerationScript.ModelSavePath;
-        set
-        {
-            if (CTMGenerationScript.ModelSavePath != value)
-            {
-                CTMGenerationScript.ModelSavePath = value;
-                OnPropertyChanged();
-                NotifyParameterChanged(nameof(ModelSavePath), value);
-            }
-        }
-    }
+
 
     public CTMGenerationViewModel(CTMGenerationScript script) : base(script)
     {
@@ -353,8 +353,7 @@ public class CTMGenerationViewModel : ScriptViewModelBase
     {
         return new Dictionary<string, object>
         {
-            [nameof(PolynomialDegree)] = PolynomialDegree,
-            [nameof(ModelSavePath)] = ModelSavePath
+            [nameof(PolynomialDegree)] = PolynomialDegree
         };
     }
 
@@ -362,15 +361,12 @@ public class CTMGenerationViewModel : ScriptViewModelBase
     {
         if (data.TryGetValue(nameof(PolynomialDegree), out var degree))
             PolynomialDegree = Convert.ToInt32(degree);
-        if (data.TryGetValue(nameof(ModelSavePath), out var path))
-            ModelSavePath = path?.ToString() ?? "ctm_model.zip";
         await Task.CompletedTask;
     }
 
     public override async Task ResetToDefaultAsync()
     {
         PolynomialDegree = 2;
-        ModelSavePath = "ctm_model.zip";
         await Task.CompletedTask;
     }
 
@@ -378,4 +374,4 @@ public class CTMGenerationViewModel : ScriptViewModelBase
     {
         base.Dispose();
     }
-}
+} 

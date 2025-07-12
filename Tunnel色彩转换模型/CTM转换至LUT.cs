@@ -26,10 +26,7 @@ public class CTMToLUTScript : RevivalScriptBase
     [ScriptParameter(DisplayName = "LUT精度", Description = "LUT的网格精度（33或65点）", Order = 0)]
     public int LUTSize { get; set; } = 33;
 
-    [ScriptParameter(DisplayName = "输出路径", Description = "LUT文件保存路径", Order = 1)]
-    public string OutputPath { get; set; } = "output.cube";
-
-    [ScriptParameter(DisplayName = "并行处理", Description = "使用多线程加速LUT生成", Order = 2)]
+    [ScriptParameter(DisplayName = "并行处理", Description = "使用多线程加速LUT生成", Order = 1)]
     public bool UseParallel { get; set; } = true;
 
     public string NodeInstanceId { get; set; } = string.Empty;
@@ -46,7 +43,8 @@ public class CTMToLUTScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["lut_path"] = new PortDefinition("string", false, "生成的LUT文件路径")
+            ["lut_data"] = new PortDefinition("object", false, "生成的LUT数据"),
+            ["lut_text"] = new PortDefinition("string", false, "LUT的.cube格式文本")
         };
     }
 
@@ -54,27 +52,35 @@ public class CTMToLUTScript : RevivalScriptBase
     {
         if (!inputs.TryGetValue("ctm_model", out var modelObj) || modelObj == null)
         {
-            return new Dictionary<string, object> { ["lut_path"] = null };
+            return new Dictionary<string, object>
+            {
+                ["lut_data"] = null,
+                ["lut_text"] = null
+            };
         }
 
         if (!(modelObj is CTMModel ctmModel))
         {
-            return new Dictionary<string, object> { ["lut_path"] = null };
+            return new Dictionary<string, object>
+            {
+                ["lut_data"] = null,
+                ["lut_text"] = null
+            };
         }
 
         try
         {
-            // context?.LogMessage($"开始生成 {LUTSize}x{LUTSize}x{LUTSize} LUT...");
-
             // 生成LUT数据
             var lutData = GenerateLUTData(ctmModel, LUTSize, context);
 
-            // 保存为.cube文件
-            SaveCubeLUT(lutData, OutputPath, LUTSize, context);
+            // 生成.cube格式文本
+            var lutText = GenerateCubeText(lutData, LUTSize);
 
-            // context?.LogMessage($"LUT文件已保存至: {OutputPath}");
-
-            return new Dictionary<string, object> { ["lut_path"] = OutputPath };
+            return new Dictionary<string, object>
+            {
+                ["lut_data"] = lutData,
+                ["lut_text"] = lutText
+            };
         }
         catch (Exception ex)
         {
@@ -85,7 +91,10 @@ public class CTMToLUTScript : RevivalScriptBase
     private Vec3f[,,] GenerateLUTData(CTMModel ctmModel, int lutSize, IScriptContext context)
     {
         var lutData = new Vec3f[lutSize, lutSize, lutSize];
-        var predictionEngine = ctmModel.MLContext.Model.CreatePredictionEngine<ColorTransferData, ColorPrediction>(ctmModel.Model);
+        // 创建三个预测引擎
+        var rEngine = ctmModel.MLContext.Model.CreatePredictionEngine<ColorTransferData, ColorPrediction>(ctmModel.RModel);
+        var gEngine = ctmModel.MLContext.Model.CreatePredictionEngine<ColorTransferData, ColorPrediction>(ctmModel.GModel);
+        var bEngine = ctmModel.MLContext.Model.CreatePredictionEngine<ColorTransferData, ColorPrediction>(ctmModel.BModel);
         
         int totalSteps = lutSize * lutSize * lutSize;
         int processedSteps = 0;
@@ -106,7 +115,7 @@ public class CTMToLUTScript : RevivalScriptBase
                         float bValue = (float)b / (lutSize - 1);
 
                         // 应用CTM变换
-                        var transformedColor = ApplyCTMToColor(rValue, gValue, bValue, predictionEngine, ctmModel.Degree);
+                        var transformedColor = ApplyCTMToColor(rValue, gValue, bValue, rEngine, gEngine, bEngine);
 
                         // 确保颜色值在有效范围内
                         transformedColor = new Vec3f(
@@ -142,7 +151,7 @@ public class CTMToLUTScript : RevivalScriptBase
                         float gValue = (float)g / (lutSize - 1);
                         float bValue = (float)b / (lutSize - 1);
 
-                        var transformedColor = ApplyCTMToColor(rValue, gValue, bValue, predictionEngine, ctmModel.Degree);
+                        var transformedColor = ApplyCTMToColor(rValue, gValue, bValue, rEngine, gEngine, bEngine);
 
                         transformedColor = new Vec3f(
                             Math.Max(0, Math.Min(1, transformedColor.Item0)),
@@ -167,56 +176,56 @@ public class CTMToLUTScript : RevivalScriptBase
         return lutData;
     }
 
-    private Vec3f ApplyCTMToColor(float r, float g, float b, PredictionEngine<ColorTransferData, ColorPrediction> predictionEngine, int degree)
+    private Vec3f ApplyCTMToColor(float r, float g, float b,
+        PredictionEngine<ColorTransferData, ColorPrediction> rEngine,
+        PredictionEngine<ColorTransferData, ColorPrediction> gEngine,
+        PredictionEngine<ColorTransferData, ColorPrediction> bEngine)
     {
-        // 简化版本：这里应该使用实际的多项式特征变换和预测
-        // 由于ML.NET模型的复杂性，这里使用简化的变换作为示例
-        
         var inputData = new ColorTransferData
         {
             SourceR = r,
             SourceG = g,
             SourceB = b
         };
-        
-        // 这里需要实现实际的预测逻辑
-        // 简化的颜色变换（实际应该基于训练的模型）
-        float transformedR = Math.Max(0, Math.Min(1, r * 1.1f));
-        float transformedG = Math.Max(0, Math.Min(1, g * 1.05f));
-        float transformedB = Math.Max(0, Math.Min(1, b * 0.95f));
-        
+
+        // 使用三个独立的模型预测每个通道
+        var rPrediction = rEngine.Predict(inputData);
+        var gPrediction = gEngine.Predict(inputData);
+        var bPrediction = bEngine.Predict(inputData);
+
+        float transformedR = Math.Max(0, Math.Min(1, rPrediction.Score));
+        float transformedG = Math.Max(0, Math.Min(1, gPrediction.Score));
+        float transformedB = Math.Max(0, Math.Min(1, bPrediction.Score));
+
         return new Vec3f(transformedR, transformedG, transformedB);
     }
 
-    private void SaveCubeLUT(Vec3f[,,] lutData, string filePath, int lutSize, IScriptContext context)
+    private string GenerateCubeText(Vec3f[,,] lutData, int lutSize)
     {
-        // context?.LogMessage($"保存LUT文件: {filePath}");
+        var sb = new StringBuilder();
 
-        using (var writer = new StreamWriter(filePath, false, Encoding.UTF8))
+        // 写入.cube文件头
+        sb.AppendLine("TITLE \"Generated LUT from CTM\"");
+        sb.AppendLine($"LUT_3D_SIZE {lutSize}");
+        sb.AppendLine("DOMAIN_MIN 0.0 0.0 0.0");
+        sb.AppendLine("DOMAIN_MAX 1.0 1.0 1.0");
+        sb.AppendLine();
+
+        // 写入LUT数据
+        // .cube格式要求按照B->G->R的顺序
+        for (int b = 0; b < lutSize; b++)
         {
-            // 写入.cube文件头
-            writer.WriteLine("TITLE \"Generated LUT from CTM\"");
-            writer.WriteLine($"LUT_3D_SIZE {lutSize}");
-            writer.WriteLine("DOMAIN_MIN 0.0 0.0 0.0");
-            writer.WriteLine("DOMAIN_MAX 1.0 1.0 1.0");
-            writer.WriteLine();
-
-            // 写入LUT数据
-            // .cube格式要求按照B->G->R的顺序
-            for (int b = 0; b < lutSize; b++)
+            for (int g = 0; g < lutSize; g++)
             {
-                for (int g = 0; g < lutSize; g++)
+                for (int r = 0; r < lutSize; r++)
                 {
-                    for (int r = 0; r < lutSize; r++)
-                    {
-                        var color = lutData[r, g, b];
-                        writer.WriteLine($"{color.Item0:F6} {color.Item1:F6} {color.Item2:F6}");
-                    }
+                    var color = lutData[r, g, b];
+                    sb.AppendLine($"{color.Item0:F6} {color.Item1:F6} {color.Item2:F6}");
                 }
             }
         }
 
-        // context?.LogMessage("LUT文件保存完成");
+        return sb.ToString();
     }
 
     public override FrameworkElement CreateParameterControl()
@@ -265,16 +274,6 @@ public class CTMToLUTScript : RevivalScriptBase
         lutSizePanel.Children.Add(lutSizeComboBox);
         mainPanel.Children.Add(lutSizePanel);
 
-        // 输出路径
-        var pathLabel = new Label { Content = "输出路径:", Margin = new Thickness(0, 10, 0, 0) };
-        if (resources.Contains("DefaultLabelStyle")) pathLabel.Style = resources["DefaultLabelStyle"] as Style;
-        mainPanel.Children.Add(pathLabel);
-
-        var pathTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 5) };
-        if (resources.Contains("DefaultTextBoxStyle")) pathTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
-        pathTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.OutputPath)) { Mode = BindingMode.TwoWay });
-        mainPanel.Children.Add(pathTextBox);
-
         // 并行处理复选框
         var parallelCheckBox = new CheckBox { Content = "使用并行处理", Margin = new Thickness(0, 10, 0, 0) };
         parallelCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.UseParallel)) { Mode = BindingMode.TwoWay });
@@ -298,7 +297,6 @@ public class CTMToLUTScript : RevivalScriptBase
         return new Dictionary<string, object>
         {
             [nameof(LUTSize)] = LUTSize,
-            [nameof(OutputPath)] = OutputPath,
             [nameof(UseParallel)] = UseParallel,
             ["NodeInstanceId"] = NodeInstanceId
         };
@@ -308,8 +306,6 @@ public class CTMToLUTScript : RevivalScriptBase
     {
         if (data.TryGetValue(nameof(LUTSize), out var lutSize))
             LUTSize = Convert.ToInt32(lutSize);
-        if (data.TryGetValue(nameof(OutputPath), out var outputPath))
-            OutputPath = outputPath?.ToString() ?? "output.cube";
         if (data.TryGetValue(nameof(UseParallel), out var useParallel))
             UseParallel = Convert.ToBoolean(useParallel);
         if (data.TryGetValue("NodeInstanceId", out var nodeId))
@@ -328,24 +324,40 @@ public class CTMToLUTScript : RevivalScriptBase
 // 重用数据类
 public class ColorTransferData
 {
+    [LoadColumn(0)]
     public float SourceR { get; set; }
+
+    [LoadColumn(1)]
     public float SourceG { get; set; }
+
+    [LoadColumn(2)]
     public float SourceB { get; set; }
+
+    [LoadColumn(3)]
     public float TargetR { get; set; }
+
+    [LoadColumn(4)]
     public float TargetG { get; set; }
+
+    [LoadColumn(5)]
     public float TargetB { get; set; }
 }
 
 public class ColorPrediction
 {
+    [ColumnName("Score")]
     public float Score { get; set; }
 }
 
 public class CTMModel
 {
     public MLContext MLContext { get; set; }
-    public ITransformer Model { get; set; }
+    public ITransformer RModel { get; set; }  // R通道模型
+    public ITransformer GModel { get; set; }  // G通道模型
+    public ITransformer BModel { get; set; }  // B通道模型
     public int Degree { get; set; }
+    public Vec3f[] SourceColors { get; set; }  // 源颜色样本
+    public Vec3f[] TargetColors { get; set; }  // 目标颜色样本
 }
 
 public class CTMToLUTViewModel : ScriptViewModelBase
@@ -366,19 +378,7 @@ public class CTMToLUTViewModel : ScriptViewModelBase
         }
     }
 
-    public string OutputPath
-    {
-        get => CTMToLUTScript.OutputPath;
-        set
-        {
-            if (CTMToLUTScript.OutputPath != value)
-            {
-                CTMToLUTScript.OutputPath = value;
-                OnPropertyChanged();
-                NotifyParameterChanged(nameof(OutputPath), value);
-            }
-        }
-    }
+
 
     public bool UseParallel
     {
@@ -421,7 +421,6 @@ public class CTMToLUTViewModel : ScriptViewModelBase
         return new Dictionary<string, object>
         {
             [nameof(LUTSize)] = LUTSize,
-            [nameof(OutputPath)] = OutputPath,
             [nameof(UseParallel)] = UseParallel
         };
     }
@@ -430,8 +429,6 @@ public class CTMToLUTViewModel : ScriptViewModelBase
     {
         if (data.TryGetValue(nameof(LUTSize), out var lutSize))
             LUTSize = Convert.ToInt32(lutSize);
-        if (data.TryGetValue(nameof(OutputPath), out var outputPath))
-            OutputPath = outputPath?.ToString() ?? "output.cube";
         if (data.TryGetValue(nameof(UseParallel), out var useParallel))
             UseParallel = Convert.ToBoolean(useParallel);
         await Task.CompletedTask;
@@ -440,7 +437,6 @@ public class CTMToLUTViewModel : ScriptViewModelBase
     public override async Task ResetToDefaultAsync()
     {
         LUTSize = 33;
-        OutputPath = "output.cube";
         UseParallel = true;
         await Task.CompletedTask;
     }
