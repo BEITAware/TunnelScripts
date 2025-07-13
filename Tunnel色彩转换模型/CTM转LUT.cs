@@ -7,22 +7,24 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
+using System.IO;
+using System.Text;
+using Microsoft.Win32;
 using System.Linq;
-using System.Threading;
 using System.Text.Json;
 
 [RevivalScript(
-    Name = "CTM应用",
+    Name = "CTM转LUT",
     Author = "BEITAware",
-    Description = "将CTM模型应用到图像上进行颜色转换",
+    Description = "将CTM模型转换为3D LUT格式文件",
     Version = "1.0",
     Category = "Tunnel色彩转换模型",
-    Color = "#9B59B6"
+    Color = "#E74C3C"
 )]
-public class CTMApplicationScript : RevivalScriptBase
+public class CTMToLUTScript : RevivalScriptBase
 {
-    [ScriptParameter(DisplayName = "并行处理", Description = "启用多线程并行处理", Order = 0)]
-    public bool EnableParallelProcessing { get; set; } = true;
+    [ScriptParameter(DisplayName = "LUT网格大小", Description = "3D LUT的网格大小（如33表示33x33x33）", Order = 0)]
+    public int GridSize { get; set; } = 33;
 
     public string NodeInstanceId { get; set; } = string.Empty;
 
@@ -30,7 +32,6 @@ public class CTMApplicationScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像"),
             ["ctm"] = new PortDefinition("ColorTransferModel", false, "CTM模型")
         };
     }
@@ -39,90 +40,78 @@ public class CTMApplicationScript : RevivalScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", false, "转换后的图像")
+            ["lut_data"] = new PortDefinition("Cube3DLut", false, "LUT数据（CUBE格式文本）")
         };
     }
 
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
-        if (!inputs.TryGetValue("f32bmp", out var imageObj) || imageObj == null ||
-            !inputs.TryGetValue("ctm", out var ctmObj) || ctmObj == null)
+        if (!inputs.TryGetValue("ctm", out var ctmObj) || ctmObj == null)
         {
-            return new Dictionary<string, object> { ["f32bmp"] = null };
-        }
-
-        if (!(imageObj is Mat imageMat) || imageMat.Empty())
-        {
-            return new Dictionary<string, object> { ["f32bmp"] = null };
+            return new Dictionary<string, object> { ["lut_data"] = null };
         }
 
         try
         {
-            // 确保输入是RGBA格式
-            Mat workingImage = EnsureRGBAFormat(imageMat);
-
             // 将CTM对象转换为ColorTransferModel
             ColorTransferModel ctmModel = ConvertToColorTransferModel(ctmObj);
             if (ctmModel == null)
             {
-                return new Dictionary<string, object> { ["f32bmp"] = null };
+                return new Dictionary<string, object> { ["lut_data"] = null };
             }
 
-            // 应用CTM转换
-            Mat transformedImage = ApplyColorTransform(workingImage, ctmModel);
+            // 生成3D LUT数据
+            string lutData = Generate3DLUTData(ctmModel, GridSize);
 
             return new Dictionary<string, object>
             {
-                ["f32bmp"] = transformedImage
+                ["lut_data"] = lutData
             };
         }
         catch (Exception ex)
         {
-            throw new ApplicationException($"CTM应用处理失败: {ex.Message}", ex);
+            throw new ApplicationException($"CTM转LUT处理失败: {ex.Message}", ex);
         }
     }
 
     /// <summary>
-    /// 确保图像是RGBA格式
+    /// 生成3D LUT数据
     /// </summary>
-    private Mat EnsureRGBAFormat(Mat inputMat)
+    private string Generate3DLUTData(ColorTransferModel ctmModel, int gridSize)
     {
-        if (inputMat.Channels() == 4 && inputMat.Type() == MatType.CV_32FC4)
+        var lutBuilder = new StringBuilder();
+
+        // 写入CUBE文件头
+        lutBuilder.AppendLine("TITLE \"Generated from CTM\"");
+        lutBuilder.AppendLine($"LUT_3D_SIZE {gridSize}");
+        lutBuilder.AppendLine("DOMAIN_MIN 0.0 0.0 0.0");
+        lutBuilder.AppendLine("DOMAIN_MAX 1.0 1.0 1.0");
+        lutBuilder.AppendLine();
+
+        // 生成LUT数据
+        for (int b = 0; b < gridSize; b++)
         {
-            return inputMat.Clone();
+            for (int g = 0; g < gridSize; g++)
+            {
+                for (int r = 0; r < gridSize; r++)
+                {
+                    // 计算输入颜色（0-1范围）
+                    float inputR = r / (float)(gridSize - 1);
+                    float inputG = g / (float)(gridSize - 1);
+                    float inputB = b / (float)(gridSize - 1);
+
+                    var inputColor = new Vec3f(inputR, inputG, inputB);
+
+                    // 应用CTM转换
+                    var outputColor = ctmModel.Transform(inputColor);
+
+                    // 添加LUT条目
+                    lutBuilder.AppendLine($"{outputColor.Item0:F6} {outputColor.Item1:F6} {outputColor.Item2:F6}");
+                }
+            }
         }
 
-        Mat rgbaMat = new Mat();
-        
-        if (inputMat.Channels() == 3)
-        {
-            Cv2.CvtColor(inputMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-        }
-        else if (inputMat.Channels() == 1)
-        {
-            Mat rgbMat = new Mat();
-            Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.GRAY2RGB);
-            Cv2.CvtColor(rgbMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-            rgbMat.Dispose();
-        }
-        else if (inputMat.Channels() == 4)
-        {
-            rgbaMat = inputMat.Clone();
-        }
-        else
-        {
-            throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
-        }
-
-        if (rgbaMat.Type() != MatType.CV_32FC4)
-        {
-            Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
-            rgbaMat.Dispose();
-            return floatMat;
-        }
-
-        return rgbaMat;
+        return lutBuilder.ToString();
     }
 
     /// <summary>
@@ -166,54 +155,6 @@ public class CTMApplicationScript : RevivalScriptBase
         return null;
     }
 
-    /// <summary>
-    /// 应用颜色转换
-    /// </summary>
-    private Mat ApplyColorTransform(Mat inputImage, ColorTransferModel ctmModel)
-    {
-        Mat outputImage = inputImage.Clone();
-        int height = inputImage.Height;
-        int width = inputImage.Width;
-
-        if (EnableParallelProcessing)
-        {
-            // 并行处理
-            Parallel.For(0, height, y =>
-            {
-                ProcessRow(inputImage, outputImage, ctmModel, y, width);
-            });
-        }
-        else
-        {
-            // 串行处理
-            for (int y = 0; y < height; y++)
-            {
-                ProcessRow(inputImage, outputImage, ctmModel, y, width);
-            }
-        }
-
-        return outputImage;
-    }
-
-    /// <summary>
-    /// 处理单行像素
-    /// </summary>
-    private void ProcessRow(Mat inputImage, Mat outputImage, ColorTransferModel ctmModel, int y, int width)
-    {
-        for (int x = 0; x < width; x++)
-        {
-            var pixel = inputImage.At<Vec4f>(y, x);
-            var inputColor = new Vec3f(pixel.Item0, pixel.Item1, pixel.Item2);
-            
-            // 应用CTM转换
-            var transformedColor = ctmModel.Transform(inputColor);
-            
-            // 保持Alpha通道不变
-            var outputPixel = new Vec4f(transformedColor.Item0, transformedColor.Item1, transformedColor.Item2, pixel.Item3);
-            outputImage.Set(y, x, outputPixel);
-        }
-    }
-
     public override FrameworkElement CreateParameterControl()
     {
         var mainPanel = new StackPanel { Margin = new Thickness(5) };
@@ -225,7 +166,8 @@ public class CTMApplicationScript : RevivalScriptBase
             "/Tunnel-Next;component/Resources/ScriptsControls/SharedBrushes.xaml",
             "/Tunnel-Next;component/Resources/ScriptsControls/LabelStyles.xaml",
             "/Tunnel-Next;component/Resources/ScriptsControls/PanelStyles.xaml",
-            "/Tunnel-Next;component/Resources/ScriptsControls/CheckBoxStyles.xaml"
+            "/Tunnel-Next;component/Resources/ScriptsControls/TextBoxIdleStyles.xaml",
+            "/Tunnel-Next;component/Resources/ScriptsControls/ScriptButtonStyles.xaml"
         };
         foreach (var path in resourcePaths)
         {
@@ -236,26 +178,35 @@ public class CTMApplicationScript : RevivalScriptBase
         if (resources.Contains("MainPanelStyle")) mainPanel.Style = resources["MainPanelStyle"] as Style;
 
         // ViewModel
-        var viewModel = CreateViewModel() as CTMApplicationViewModel;
+        var viewModel = CreateViewModel() as CTMToLUTViewModel;
         mainPanel.DataContext = viewModel;
 
         // 标题
-        var titleLabel = new Label { Content = "CTM应用设置" };
+        var titleLabel = new Label { Content = "CTM转LUT设置" };
         if (resources.Contains("TitleLabelStyle")) titleLabel.Style = resources["TitleLabelStyle"] as Style;
         mainPanel.Children.Add(titleLabel);
         
-        // 并行处理选项
-        var parallelCheckBox = new CheckBox { Content = "启用并行处理", Margin = new Thickness(0, 5, 0, 10) };
-        if(resources.Contains("DefaultCheckBoxStyle")) parallelCheckBox.Style = resources["DefaultCheckBoxStyle"] as Style;
-        parallelCheckBox.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(viewModel.EnableParallelProcessing)) { Mode = BindingMode.TwoWay });
-        mainPanel.Children.Add(parallelCheckBox);
+        // 网格大小
+        var gridSizeLabel = new Label { Content = "LUT网格大小:" };
+        if(resources.Contains("DefaultLabelStyle")) gridSizeLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(gridSizeLabel);
+
+        var gridSizeTextBox = new TextBox { Margin = new Thickness(0, 0, 0, 10) };
+        if(resources.Contains("DefaultTextBoxStyle")) gridSizeTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
+        gridSizeTextBox.SetBinding(TextBox.TextProperty, new Binding(nameof(viewModel.GridSize)) { Mode = BindingMode.TwoWay });
+        mainPanel.Children.Add(gridSizeTextBox);
+
+        // 说明文本
+        var infoLabel = new Label { Content = "LUT数据将作为文本输出，可连接到其他节点进行处理。" };
+        if(resources.Contains("DefaultLabelStyle")) infoLabel.Style = resources["DefaultLabelStyle"] as Style;
+        mainPanel.Children.Add(infoLabel);
 
         return mainPanel;
     }
 
     public override IScriptViewModel CreateViewModel()
     {
-        return new CTMApplicationViewModel(this);
+        return new CTMToLUTViewModel(this);
     }
 
     public override async Task OnParameterChangedAsync(string parameterName, object oldValue, object newValue)
@@ -267,15 +218,15 @@ public class CTMApplicationScript : RevivalScriptBase
     {
         return new Dictionary<string, object>
         {
-            [nameof(EnableParallelProcessing)] = EnableParallelProcessing,
+            [nameof(GridSize)] = GridSize,
             ["NodeInstanceId"] = NodeInstanceId
         };
     }
 
     public override void DeserializeParameters(Dictionary<string, object> data)
     {
-        if (data.TryGetValue(nameof(EnableParallelProcessing), out var enableParallel))
-            EnableParallelProcessing = Convert.ToBoolean(enableParallel);
+        if (data.TryGetValue(nameof(GridSize), out var gridSize))
+            GridSize = Convert.ToInt32(gridSize);
         if (data.TryGetValue("NodeInstanceId", out var nodeId))
             NodeInstanceId = nodeId?.ToString() ?? string.Empty;
     }
@@ -289,25 +240,27 @@ public class CTMApplicationScript : RevivalScriptBase
     }
 }
 
-public class CTMApplicationViewModel : ScriptViewModelBase
+public class CTMToLUTViewModel : ScriptViewModelBase
 {
-    private CTMApplicationScript CTMApplicationScript => (CTMApplicationScript)Script;
+    private CTMToLUTScript CTMToLUTScript => (CTMToLUTScript)Script;
 
-    public bool EnableParallelProcessing
+    public int GridSize
     {
-        get => CTMApplicationScript.EnableParallelProcessing;
+        get => CTMToLUTScript.GridSize;
         set
         {
-            if (CTMApplicationScript.EnableParallelProcessing != value)
+            if (CTMToLUTScript.GridSize != value)
             {
-                CTMApplicationScript.EnableParallelProcessing = value;
+                CTMToLUTScript.GridSize = value;
                 OnPropertyChanged();
-                NotifyParameterChanged(nameof(EnableParallelProcessing), value);
+                NotifyParameterChanged(nameof(GridSize), value);
             }
         }
     }
 
-    public CTMApplicationViewModel(CTMApplicationScript script) : base(script)
+
+
+    public CTMToLUTViewModel(CTMToLUTScript script) : base(script)
     {
     }
 
@@ -326,6 +279,13 @@ public class CTMApplicationViewModel : ScriptViewModelBase
 
     public override ScriptValidationResult ValidateParameter(string parameterName, object value)
     {
+        if (parameterName == nameof(GridSize))
+        {
+            if (value is int gridSize && (gridSize < 2 || gridSize > 256))
+            {
+                return new ScriptValidationResult(false, "网格大小必须在2-256之间");
+            }
+        }
         return new ScriptValidationResult(true);
     }
 
@@ -333,20 +293,20 @@ public class CTMApplicationViewModel : ScriptViewModelBase
     {
         return new Dictionary<string, object>
         {
-            [nameof(EnableParallelProcessing)] = EnableParallelProcessing
+            [nameof(GridSize)] = GridSize
         };
     }
 
     public override async Task SetParameterDataAsync(Dictionary<string, object> data)
     {
-        if (data.TryGetValue(nameof(EnableParallelProcessing), out var enableParallel))
-            EnableParallelProcessing = Convert.ToBoolean(enableParallel);
+        if (data.TryGetValue(nameof(GridSize), out var gridSize))
+            GridSize = Convert.ToInt32(gridSize);
         await Task.CompletedTask;
     }
 
     public override async Task ResetToDefaultAsync()
     {
-        EnableParallelProcessing = true;
+        GridSize = 33;
         await Task.CompletedTask;
     }
 

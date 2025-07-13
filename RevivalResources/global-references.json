@@ -10,11 +10,6 @@
     "System.Windows.Forms.dll",
     "System.Private.Uri.dll",
     "OpenCvSharp4.WpfExtensions.dll",
-    "Microsoft.ML.dll",
-    "Microsoft.ML.Data.dll",
-    "Microsoft.ML.Core.dll",
-    "Microsoft.ML.Transforms.dll",
-    "Microsoft.ML.DataView.dll",
-    "Microsoft.ML.FastTree.dll"
+    "MathNet.Numerics.dll"
   ]
 }
