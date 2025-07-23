@@ -9,6 +9,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 using Microsoft.Win32;
+using System.Text.RegularExpressions;
 
 [RevivalScript(
     Name = "图像输入",
@@ -25,6 +26,9 @@ public class ImageInputScript : RevivalScriptBase
 
     // 处理节点实例标识
     public string NodeInstanceId { get; set; } = string.Empty;
+
+    // 保存处理上下文的引用
+    private IScriptContext _lastContext;
 
     public override Dictionary<string, PortDefinition> GetInputPorts()
     {
@@ -43,47 +47,36 @@ public class ImageInputScript : RevivalScriptBase
 
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
+        // 保存上下文引用以供其他方法使用
+        _lastContext = context;
 
-        if (string.IsNullOrEmpty(ImagePath) || !System.IO.File.Exists(ImagePath))
+        // 支持路径占位符替换
+        var resolvedPath = ReplacePlaceholders(ImagePath, context);
+        if (string.IsNullOrEmpty(resolvedPath) || !System.IO.File.Exists(resolvedPath))
         {
             throw new ArgumentException("请选择有效的图像文件");
         }
-
         try
         {
             var startRead = DateTime.Now;
-
-            // 首先尝试读取包含Alpha通道的图像
-            using (var mat = Cv2.ImRead(ImagePath, ImreadModes.Unchanged))
+            using (var mat = Cv2.ImRead(resolvedPath, ImreadModes.Unchanged))
             {
                 var endRead = DateTime.Now;
-
                 if (mat.Empty())
                 {
                     throw new ArgumentException("无法加载图像文件");
                 }
-
-
-                // 转换为32位浮点RGBA格式 - RGBA是一等公民
                 var startConversion = DateTime.Now;
-
                 var outputMat = ConvertToRGBA32F(mat);
-
                 var endConversion = DateTime.Now;
-
-                // 确认输出图像有效
                 if (outputMat.Empty())
                 {
-
-                    // 第二次尝试
                     outputMat = ConvertToRGBA32F(mat);
-
                     if (outputMat.Empty())
                     {
                         throw new InvalidOperationException("转换图像为RGBA浮点格式失败");
                     }
                 }
-
                 return new Dictionary<string, object>
                 {
                     ["f32bmp"] = outputMat
@@ -94,6 +87,30 @@ public class ImageInputScript : RevivalScriptBase
         {
             throw new ApplicationException($"处理图像时发生错误: {ex.Message}", ex);
         }
+    }
+
+    // 新增：支持{key}通配环境字典
+    private string ReplacePlaceholders(string path, IScriptContext context)
+    {
+        if (string.IsNullOrEmpty(path) || context == null) return path;
+        
+        // 获取环境字典
+        var processorEnv = context.GetType().GetProperty("Environment")?.GetValue(context) as Tunnel_Next.Services.ImageProcessing.ProcessorEnvironment;
+        if (processorEnv?.EnvironmentDictionary != null)
+        {
+            foreach (var kv in processorEnv.EnvironmentDictionary)
+            {
+                var key = kv.Key;
+                var value = kv.Value?.ToString() ?? string.Empty;
+                path = Regex.Replace(path, $"\\{{{Regex.Escape(key)}\\}}", value, RegexOptions.IgnoreCase);
+            }
+            // 兼容常用占位符
+            if (processorEnv.EnvironmentDictionary.TryGetValue("NodeGraphName", out var nodeGraphName))
+                path = Regex.Replace(path, "\\{NodeGraphName\\}", nodeGraphName?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+            if (processorEnv.EnvironmentDictionary.TryGetValue("Index", out var index))
+                path = Regex.Replace(path, "\\{Index\\}", index?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+        }
+        return path;
     }
 
     /// <summary>
@@ -149,14 +166,24 @@ public class ImageInputScript : RevivalScriptBase
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)
     {
-        // 只注入图像源地址
+        // 注入所有环境字典内容为元数据
         var metadata = new Dictionary<string, object>(currentMetadata);
-
         if (!string.IsNullOrEmpty(ImagePath))
         {
             metadata["图像源地址"] = ImagePath;
         }
-
+        // 补全与图像输出节点一致的占位符
+        if (_lastContext != null)
+        {
+            var processorEnv = _lastContext.GetType().GetProperty("Environment")?.GetValue(_lastContext) as Tunnel_Next.Services.ImageProcessing.ProcessorEnvironment;
+            if (processorEnv?.EnvironmentDictionary != null)
+            {
+                foreach (var kv in processorEnv.EnvironmentDictionary)
+                {
+                    metadata[kv.Key] = kv.Value;
+                }
+            }
+        }
         return metadata;
     }
 

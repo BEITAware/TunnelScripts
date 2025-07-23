@@ -8,6 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 using Microsoft.Win32;
+using System.Text.RegularExpressions; // add for placeholder replacement
 
 [RevivalScript(
     Name = "图像输出",
@@ -24,6 +25,14 @@ public class ImageOutputScript : RevivalScriptBase
 
     // 处理节点实例标识
     public string NodeInstanceId { get; set; } = string.Empty;
+
+    // 新增字段: 用于存储节点图名称（来自全局元数据）
+    private string _nodeGraphName = string.Empty;
+    // 新增字段: 用于存储序号
+    private string _index = string.Empty;
+
+    // 保存最后一次处理上下文的引用
+    private IScriptContext _lastContext;
 
     [ScriptParameter(DisplayName = "图像质量", Description = "JPEG图像质量 (1-100)", Order = 1)]
     public int Quality { get; set; } = 95;
@@ -56,13 +65,68 @@ public class ImageOutputScript : RevivalScriptBase
             throw new ArgumentException("需要输入图像");
         }
 
-        if (AutoSave && !string.IsNullOrEmpty(SavePath))
+        // 保存上下文引用以供后续方法使用
+        _lastContext = context;
+
+        // 解析占位符（如 {NodegraphName}）
+        var resolvedPath = ReplacePlaceholders(SavePath);
+
+        if (AutoSave && !string.IsNullOrEmpty(resolvedPath))
         {
-            SaveImage(inputMat, SavePath);
+            SaveImage(inputMat, resolvedPath);
         }
 
         // 图像输出节点不返回任何输出
         return new Dictionary<string, object>();
+    }
+
+    // 新增：替换保存路径中的通配符，支持所有环境字典key
+    private string ReplacePlaceholders(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        // 支持ProcessorEnvironment.EnvironmentDictionary
+        if (_lastContext != null)
+        {
+            var processorEnv = _lastContext.GetType().GetProperty("Environment")?.GetValue(_lastContext) as Tunnel_Next.Services.ImageProcessing.ProcessorEnvironment;
+            if (processorEnv?.EnvironmentDictionary != null)
+            {
+                foreach (var kv in processorEnv.EnvironmentDictionary)
+                {
+                    var key = kv.Key;
+                    var value = kv.Value?.ToString() ?? string.Empty;
+                    path = System.Text.RegularExpressions.Regex.Replace(path, $"\\{{{System.Text.RegularExpressions.Regex.Escape(key)}\\}}", value, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                }
+            }
+        }
+        // 兼容旧有字段
+        if (!string.IsNullOrEmpty(_nodeGraphName))
+        {
+            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{NodegraphName\\}", _nodeGraphName, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        if (!string.IsNullOrEmpty(_index))
+        {
+            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{Index\\}", _index, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        return path;
+    }
+
+    /// <summary>
+    /// 提取上游元数据，获取节点图名称
+    /// </summary>
+    public override void ExtractMetadata(Dictionary<string, object> upstreamMetadata)
+    {
+        if (upstreamMetadata != null)
+        {
+            if (upstreamMetadata.TryGetValue("节点图名称", out var nameObj))
+            {
+                _nodeGraphName = nameObj?.ToString() ?? string.Empty;
+            }
+
+            if (upstreamMetadata.TryGetValue("序号", out var indexObj) || upstreamMetadata.TryGetValue("Index", out indexObj))
+            {
+                _index = indexObj?.ToString() ?? string.Empty;
+            }
+        }
     }
 
     private void SaveImage(Mat inputMat, string path)

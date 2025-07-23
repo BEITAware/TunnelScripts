@@ -18,7 +18,7 @@ using CvRect = OpenCvSharp.Rect;
     Version = "2.0",
     Category = "图像处理",
     Color = "#191970")]
-public class GpuLayerBlendScript : RevivalScriptBase
+public class GpuLayerBlendScript : DynamicUIRevivalScriptBase
 {
     // ---------------- Parameters ----------------
     [ScriptParameter(DisplayName = "全局不透明度", Description = "所有图层的全局不透明度 0-1")]
@@ -67,8 +67,25 @@ public class GpuLayerBlendScript : RevivalScriptBase
                             .Select(k => (Key: k.Key, Mat: To32FC4((Mat)k.Value)))
                             .ToList();
 
-        // 记录端口名称以便 UI 动态生成
-        _lastLinkNames = inputs.Keys.Where(k => k != "canvas").OrderBy(k => k).ToList();
+        // 检测连接变化并更新UI
+        var currentLinkNames = inputs.Keys.Where(k => k != "canvas").OrderBy(k => k).ToList();
+        var newToken = string.Join(",", currentLinkNames);
+
+        if (newToken != _currentUIToken)
+        {
+            _currentUIToken = newToken;
+            _lastLinkNames = currentLinkNames;
+
+            // 创建连接信息并触发UI更新
+            var connectionInfo = new ScriptConnectionInfo
+            {
+                ChangeType = ScriptConnectionChangeType.Connected,
+                InputConnections = inputs.Keys.ToDictionary(k => k, k => inputs.ContainsKey(k) && inputs[k] != null)
+            };
+
+            // 在UI线程中请求更新
+            Application.Current?.Dispatcher.BeginInvoke(() => RequestUIRefresh());
+        }
 
         if (!layers.Any()) { result["Output"] = working; return result; }
         if (ReverseOrder) layers.Reverse();
@@ -257,21 +274,29 @@ public class GpuLayerBlendScript : RevivalScriptBase
             [nameof(GlobalOpacity)] = GlobalOpacity,
             [nameof(RespectAlpha)] = RespectAlpha,
             [nameof(EnableParallelProcessing)] = EnableParallelProcessing,
-            [nameof(ReverseOrder)] = ReverseOrder
+            [nameof(ReverseOrder)] = ReverseOrder,
+            ["_UIToken"] = _currentUIToken,
+            ["_LastLinkNames"] = string.Join("|", _lastLinkNames)
         };
 
+        // 序列化所有图层参数
         foreach (var kv in _layerParams)
         {
-            dict[$"{kv.Key}_OffsetX"] = kv.Value.OffsetX;
-            dict[$"{kv.Key}_OffsetY"] = kv.Value.OffsetY;
-            dict[$"{kv.Key}_ScaleX"] = kv.Value.ScaleX;
-            dict[$"{kv.Key}_ScaleY"] = kv.Value.ScaleY;
+            dict[$"Layer_{kv.Key}_OffsetX"] = kv.Value.OffsetX;
+            dict[$"Layer_{kv.Key}_OffsetY"] = kv.Value.OffsetY;
+            dict[$"Layer_{kv.Key}_ScaleX"] = kv.Value.ScaleX;
+            dict[$"Layer_{kv.Key}_ScaleY"] = kv.Value.ScaleY;
         }
+
+        System.Diagnostics.Debug.WriteLine($"[图层混合+] 序列化参数: {dict.Count} 项");
         return dict;
     }
 
     public override void DeserializeParameters(Dictionary<string, object> data)
     {
+        System.Diagnostics.Debug.WriteLine($"[图层混合+] 反序列化参数: {data.Count} 项");
+
+        // 恢复基础参数
         if (data.TryGetValue(nameof(GlobalOpacity), out var g) && float.TryParse(g.ToString(), out var gv))
             GlobalOpacity = Clamp(gv, 0f, 1f);
         if (data.TryGetValue(nameof(RespectAlpha), out var r) && bool.TryParse(r.ToString(), out var rv))
@@ -281,15 +306,26 @@ public class GpuLayerBlendScript : RevivalScriptBase
         if (data.TryGetValue(nameof(ReverseOrder), out var q) && bool.TryParse(q.ToString(), out var qv))
             ReverseOrder = qv;
 
+        // 恢复UI状态
+        if (data.TryGetValue("_UIToken", out var token))
+            _currentUIToken = token?.ToString() ?? "";
+        if (data.TryGetValue("_LastLinkNames", out var linkNames))
+        {
+            var names = linkNames?.ToString() ?? "";
+            _lastLinkNames = string.IsNullOrEmpty(names) ? new List<string>() : names.Split('|').ToList();
+        }
+
+        // 恢复图层参数
+        _layerParams.Clear();
         foreach (var kv in data)
         {
-            if (!kv.Key.StartsWith("Layer")) continue;
+            if (!kv.Key.StartsWith("Layer_")) continue;
 
             var parts = kv.Key.Split('_');
-            if (parts.Length != 2) continue;
+            if (parts.Length != 3) continue; // Layer_LayerKey_Property
 
-            var layerKey = parts[0];
-            var prop = parts[1];
+            var layerKey = parts[1];
+            var prop = parts[2];
 
             if (!_layerParams.TryGetValue(layerKey, out var lt))
             {
@@ -297,8 +333,7 @@ public class GpuLayerBlendScript : RevivalScriptBase
                 _layerParams[layerKey] = lt;
             }
 
-            float val = 0f;
-            if (!float.TryParse(kv.Value.ToString(), out val)) continue;
+            if (!float.TryParse(kv.Value.ToString(), out var val)) continue;
 
             switch (prop)
             {
@@ -308,72 +343,136 @@ public class GpuLayerBlendScript : RevivalScriptBase
                 case "ScaleY": lt.ScaleY = val; break;
             }
         }
+
+        System.Diagnostics.Debug.WriteLine($"[图层混合+] 恢复了 {_layerParams.Count} 个图层参数");
     }
 
-    public override IScriptViewModel CreateViewModel() => new DummyVm(this);
+    public override IScriptViewModel CreateViewModel() => new LayerBlendViewModel(this);
 
     public override FrameworkElement CreateParameterControl()
     {
         try
         {
-            var panel = new StackPanel { Margin = new Thickness(5) };
+            _mainPanel = new StackPanel { Margin = new Thickness(5) };
 
             // 标题
-            panel.Children.Add(new TextBlock
+            _mainPanel.Children.Add(new TextBlock
             {
                 Text = "GPU 图层混合+ 控制面板",
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 6)
             });
 
-            // 逆序混合
-            var chkReverse = new CheckBox { Content = "逆序混合", IsChecked = ReverseOrder };
-            chkReverse.Checked += (_, __) => { ReverseOrder = true; OnParameterChanged(nameof(ReverseOrder), true); };
-            chkReverse.Unchecked += (_, __) => { ReverseOrder = false; OnParameterChanged(nameof(ReverseOrder), false); };
-            panel.Children.Add(chkReverse);
+            // 全局参数区域
+            AddGlobalControls(_mainPanel);
 
-            // 层级控制生成器
-            void AddLayerControls(string layerKey)
-            {
-                var expander = new Expander { Header = $"{layerKey} 参数", IsExpanded = layerKey == "Layer1", Margin = new Thickness(0, 4, 0, 4) };
-                var inner = new StackPanel { Margin = new Thickness(4, 2, 0, 2) };
+            // 动态图层控件区域
+            _layerControlsPanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            _mainPanel.Children.Add(_layerControlsPanel);
 
-                Slider MakeSlider(string name, double min, double max, double initial, Action<double> act)
-                {
-                    var sp = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
-                    sp.Children.Add(new TextBlock { Text = name, FontSize = 11 });
-                    var sld = new Slider { Minimum = min, Maximum = max, Value = initial };
-                    sld.ValueChanged += (_, e) => act(e.NewValue);
-                    sp.Children.Add(sld);
-                    inner.Children.Add(sp);
-                    return sld;
-                }
-
-                var current = GetLayerTransform(layerKey);
-                MakeSlider("位置 X", -1000, 1000, current.OffsetX, v => SetLayerParam(layerKey, LayerParamType.OffsetX, (float)v));
-                MakeSlider("位置 Y", -1000, 1000, current.OffsetY, v => SetLayerParam(layerKey, LayerParamType.OffsetY, (float)v));
-                MakeSlider("缩放 X", 0.1, 3, current.ScaleX, v => SetLayerParam(layerKey, LayerParamType.ScaleX, (float)v));
-                MakeSlider("缩放 Y", 0.1, 3, current.ScaleY, v => SetLayerParam(layerKey, LayerParamType.ScaleY, (float)v));
-
-                expander.Content = inner;
-                panel.Children.Add(expander);
-            }
-
-            // 根据最近一次处理得到的端口名称动态生成 UI
+            // 初始化图层控件
             var targetKeys = _lastLinkNames.Any()
                 ? _lastLinkNames
                 : new List<string> { "Layer1" };
 
             foreach (var key in targetKeys)
-                AddLayerControls(key);
+                AddLayerControls(_layerControlsPanel, key);
 
-            return panel;
+            return _mainPanel;
         }
         catch (Exception ex)
         {
             // 若UI创建失败，退化为简单文本提示，避免脚本面板完全空白
             return new TextBlock { Text = $"参数面板加载失败: {ex.Message}" };
         }
+    }
+
+    private void AddGlobalControls(StackPanel parent)
+    {
+        // 全局不透明度
+        var globalOpacityPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+        globalOpacityPanel.Children.Add(new TextBlock { Text = "全局不透明度", FontSize = 11 });
+        var globalOpacitySlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Value = GlobalOpacity,
+            TickFrequency = 0.1,
+            IsSnapToTickEnabled = false
+        };
+        globalOpacitySlider.ValueChanged += (_, e) =>
+        {
+            GlobalOpacity = (float)e.NewValue;
+            OnParameterChanged(nameof(GlobalOpacity), e.NewValue);
+        };
+        globalOpacityPanel.Children.Add(globalOpacitySlider);
+        parent.Children.Add(globalOpacityPanel);
+
+        // 尊重Alpha
+        var chkRespectAlpha = new CheckBox { Content = "尊重 Alpha", IsChecked = RespectAlpha };
+        chkRespectAlpha.Checked += (_, __) => { RespectAlpha = true; OnParameterChanged(nameof(RespectAlpha), true); };
+        chkRespectAlpha.Unchecked += (_, __) => { RespectAlpha = false; OnParameterChanged(nameof(RespectAlpha), false); };
+        parent.Children.Add(chkRespectAlpha);
+
+        // 并行处理
+        var chkParallel = new CheckBox { Content = "并行处理", IsChecked = EnableParallelProcessing };
+        chkParallel.Checked += (_, __) => { EnableParallelProcessing = true; OnParameterChanged(nameof(EnableParallelProcessing), true); };
+        chkParallel.Unchecked += (_, __) => { EnableParallelProcessing = false; OnParameterChanged(nameof(EnableParallelProcessing), false); };
+        parent.Children.Add(chkParallel);
+
+        // 逆序混合
+        var chkReverse = new CheckBox { Content = "逆序混合", IsChecked = ReverseOrder };
+        chkReverse.Checked += (_, __) => { ReverseOrder = true; OnParameterChanged(nameof(ReverseOrder), true); };
+        chkReverse.Unchecked += (_, __) => { ReverseOrder = false; OnParameterChanged(nameof(ReverseOrder), false); };
+        parent.Children.Add(chkReverse);
+    }
+
+    private void AddLayerControls(StackPanel parent, string layerKey)
+    {
+        var expander = new Expander
+        {
+            Header = $"{layerKey} 参数",
+            IsExpanded = layerKey == "Layer1",
+            Margin = new Thickness(0, 4, 0, 4)
+        };
+        var inner = new StackPanel { Margin = new Thickness(4, 2, 0, 2) };
+
+        var current = GetLayerTransform(layerKey);
+
+        // 位置 X
+        var offsetXPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+        offsetXPanel.Children.Add(new TextBlock { Text = "位置 X", FontSize = 11 });
+        var offsetXSlider = new Slider { Minimum = -1000, Maximum = 1000, Value = current.OffsetX };
+        offsetXSlider.ValueChanged += (_, e) => SetLayerParam(layerKey, LayerParamType.OffsetX, (float)e.NewValue);
+        offsetXPanel.Children.Add(offsetXSlider);
+        inner.Children.Add(offsetXPanel);
+
+        // 位置 Y
+        var offsetYPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+        offsetYPanel.Children.Add(new TextBlock { Text = "位置 Y", FontSize = 11 });
+        var offsetYSlider = new Slider { Minimum = -1000, Maximum = 1000, Value = current.OffsetY };
+        offsetYSlider.ValueChanged += (_, e) => SetLayerParam(layerKey, LayerParamType.OffsetY, (float)e.NewValue);
+        offsetYPanel.Children.Add(offsetYSlider);
+        inner.Children.Add(offsetYPanel);
+
+        // 缩放 X
+        var scaleXPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+        scaleXPanel.Children.Add(new TextBlock { Text = "缩放 X", FontSize = 11 });
+        var scaleXSlider = new Slider { Minimum = 0.1, Maximum = 3, Value = current.ScaleX };
+        scaleXSlider.ValueChanged += (_, e) => SetLayerParam(layerKey, LayerParamType.ScaleX, (float)e.NewValue);
+        scaleXPanel.Children.Add(scaleXSlider);
+        inner.Children.Add(scaleXPanel);
+
+        // 缩放 Y
+        var scaleYPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+        scaleYPanel.Children.Add(new TextBlock { Text = "缩放 Y", FontSize = 11 });
+        var scaleYSlider = new Slider { Minimum = 0.1, Maximum = 3, Value = current.ScaleY };
+        scaleYSlider.ValueChanged += (_, e) => SetLayerParam(layerKey, LayerParamType.ScaleY, (float)e.NewValue);
+        scaleYPanel.Children.Add(scaleYSlider);
+        inner.Children.Add(scaleYPanel);
+
+        expander.Content = inner;
+        parent.Children.Add(expander);
     }
 
     // ---------------- Layer 参数存储 ----------------
@@ -397,6 +496,15 @@ public class GpuLayerBlendScript : RevivalScriptBase
             _layerParams[layerKey] = lt;
         }
 
+        var oldValue = type switch
+        {
+            LayerParamType.OffsetX => lt.OffsetX,
+            LayerParamType.OffsetY => lt.OffsetY,
+            LayerParamType.ScaleX => lt.ScaleX,
+            LayerParamType.ScaleY => lt.ScaleY,
+            _ => 0f
+        };
+
         switch (type)
         {
             case LayerParamType.OffsetX: lt.OffsetX = value; break;
@@ -407,26 +515,198 @@ public class GpuLayerBlendScript : RevivalScriptBase
 
         // 同时写入基名，保证别名都能取到相同 transform
         var baseName = GetBaseLayerName(layerKey);
-        _layerParams[baseName] = lt;
+        if (baseName != layerKey)
+        {
+            _layerParams[baseName] = lt;
+        }
 
-        OnParameterChanged($"{layerKey}_{type}", value);
+        // 触发参数变化事件
+        var paramName = $"Layer_{layerKey}_{type}";
+        OnParameterChanged(paramName, value);
+
+        System.Diagnostics.Debug.WriteLine($"[图层混合+] 设置参数 {paramName}: {oldValue} -> {value}");
     }
 
     public override Task OnParameterChangedAsync(string parameterName, object oldValue, object newValue) => Task.CompletedTask;
 
-    private class DummyVm : ScriptViewModelBase
+    private class LayerBlendViewModel : ScriptViewModelBase
     {
-        public DummyVm(IRevivalScript script) : base(script) { }
+        private GpuLayerBlendScript Script => (GpuLayerBlendScript)base.Script;
 
-        public override Task OnParameterChangedAsync(string parameterName, object oldValue, object newValue) => Task.CompletedTask;
-        public override ScriptValidationResult ValidateParameter(string parameterName, object value) => new ScriptValidationResult(true);
-        public override Dictionary<string, object> GetParameterData() => new();
-        public override Task SetParameterDataAsync(Dictionary<string, object> data) => Task.CompletedTask;
-        public override Task ResetToDefaultAsync() => Task.CompletedTask;
+        public LayerBlendViewModel(GpuLayerBlendScript script) : base(script) { }
+
+        public float GlobalOpacity
+        {
+            get => Script.GlobalOpacity;
+            set
+            {
+                if (Math.Abs(Script.GlobalOpacity - value) > 0.001f)
+                {
+                    var oldValue = Script.GlobalOpacity;
+                    Script.GlobalOpacity = value;
+                    OnPropertyChanged();
+                    _ = OnParameterChangedAsync(nameof(GlobalOpacity), oldValue, value);
+                }
+            }
+        }
+
+        public bool RespectAlpha
+        {
+            get => Script.RespectAlpha;
+            set
+            {
+                if (Script.RespectAlpha != value)
+                {
+                    var oldValue = Script.RespectAlpha;
+                    Script.RespectAlpha = value;
+                    OnPropertyChanged();
+                    _ = OnParameterChangedAsync(nameof(RespectAlpha), oldValue, value);
+                }
+            }
+        }
+
+        public bool EnableParallelProcessing
+        {
+            get => Script.EnableParallelProcessing;
+            set
+            {
+                if (Script.EnableParallelProcessing != value)
+                {
+                    var oldValue = Script.EnableParallelProcessing;
+                    Script.EnableParallelProcessing = value;
+                    OnPropertyChanged();
+                    _ = OnParameterChangedAsync(nameof(EnableParallelProcessing), oldValue, value);
+                }
+            }
+        }
+
+        public bool ReverseOrder
+        {
+            get => Script.ReverseOrder;
+            set
+            {
+                if (Script.ReverseOrder != value)
+                {
+                    var oldValue = Script.ReverseOrder;
+                    Script.ReverseOrder = value;
+                    OnPropertyChanged();
+                    _ = OnParameterChangedAsync(nameof(ReverseOrder), oldValue, value);
+                }
+            }
+        }
+
+        public override async Task OnParameterChangedAsync(string parameterName, object oldValue, object newValue)
+        {
+            await Task.CompletedTask;
+        }
+
+        public override ScriptValidationResult ValidateParameter(string parameterName, object value)
+        {
+            return parameterName switch
+            {
+                nameof(GlobalOpacity) => new ScriptValidationResult(value is float f && f >= 0f && f <= 1f,
+                    "全局不透明度必须在0-1之间"),
+                _ => new ScriptValidationResult(true)
+            };
+        }
+
+        public override Dictionary<string, object> GetParameterData()
+        {
+            return new Dictionary<string, object>
+            {
+                [nameof(GlobalOpacity)] = GlobalOpacity,
+                [nameof(RespectAlpha)] = RespectAlpha,
+                [nameof(EnableParallelProcessing)] = EnableParallelProcessing,
+                [nameof(ReverseOrder)] = ReverseOrder
+            };
+        }
+
+        public override async Task SetParameterDataAsync(Dictionary<string, object> data)
+        {
+            if (data.TryGetValue(nameof(GlobalOpacity), out var opacity))
+                GlobalOpacity = Convert.ToSingle(opacity);
+            if (data.TryGetValue(nameof(RespectAlpha), out var respectAlpha))
+                RespectAlpha = Convert.ToBoolean(respectAlpha);
+            if (data.TryGetValue(nameof(EnableParallelProcessing), out var parallel))
+                EnableParallelProcessing = Convert.ToBoolean(parallel);
+            if (data.TryGetValue(nameof(ReverseOrder), out var reverse))
+                ReverseOrder = Convert.ToBoolean(reverse);
+            await Task.CompletedTask;
+        }
+
+        public override async Task ResetToDefaultAsync()
+        {
+            GlobalOpacity = 1.0f;
+            RespectAlpha = true;
+            EnableParallelProcessing = true;
+            ReverseOrder = false;
+            await Task.CompletedTask;
+        }
     }
 
     private static float Clamp(float v, float min, float max) => v < min ? min : (v > max ? max : v);
 
     // 缓存最近一次 Process 收到的输入端口名称，用于动态生成参数UI
     private List<string> _lastLinkNames = new();
+
+    // 动态UI支持
+    private StackPanel? _mainPanel;
+    private StackPanel? _layerControlsPanel;
+    private string _currentUIToken = "";
+
+    public override void OnConnectionChanged(ScriptConnectionInfo connectionInfo)
+    {
+        // 更新连接状态并生成UI标识符
+        var connectedLayers = connectionInfo.InputConnections
+            .Where(kvp => kvp.Key != "canvas" && kvp.Value)
+            .Select(kvp => kvp.Key)
+            .OrderBy(k => k)
+            .ToList();
+
+        var newToken = string.Join(",", connectedLayers);
+        if (newToken != _currentUIToken)
+        {
+            _currentUIToken = newToken;
+            _lastLinkNames = connectedLayers;
+            RequestUIRefresh();
+        }
+    }
+
+    public override string? GetUIUpdateToken()
+    {
+        return _currentUIToken;
+    }
+
+    public override bool TryUpdateUI(FrameworkElement existingControl, ScriptConnectionInfo changeInfo)
+    {
+        if (existingControl is StackPanel mainPanel && _layerControlsPanel != null)
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                // 清除旧的图层控件
+                _layerControlsPanel.Children.Clear();
+
+                // 重新生成图层控件
+                var connectedLayers = changeInfo.InputConnections
+                    .Where(kvp => kvp.Key != "canvas" && kvp.Value)
+                    .Select(kvp => kvp.Key)
+                    .OrderBy(k => k)
+                    .ToList();
+
+                if (!connectedLayers.Any())
+                {
+                    connectedLayers.Add("Layer1"); // 默认显示Layer1
+                }
+
+                foreach (var layerKey in connectedLayers)
+                {
+                    AddLayerControls(_layerControlsPanel, layerKey);
+                }
+            });
+
+            return true; // 增量更新成功
+        }
+
+        return false; // 需要重建整个UI
+    }
 } 
