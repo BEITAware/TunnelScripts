@@ -1,0 +1,3 @@
+<SymbolNode Name="返回" Color="#BC8F8F" Category="元节点图">
+  <InputPort  Name="In"  DataType="Any"  IsFlexible="false"/>
+</SymbolNode>
