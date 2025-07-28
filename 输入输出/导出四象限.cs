@@ -9,7 +9,7 @@ using System.Windows.Media;
 using OpenCvSharp;
 using Tunnel_Next.Services.Scripting;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "导出四象限",
     Author = "BEITAware",
     Description = "将输入图像分割为四个象限并导出，支持预览和自定义导出设置",
@@ -17,7 +17,7 @@ using Tunnel_Next.Services.Scripting;
     Category = "导出",
     Color = "#4287F5"
 )]
-public class ExportQuadrantsScript : RevivalScriptBase
+public class ExportQuadrantsScript : TunnelExtensionScriptBase
 {
     #region 参数定义
 

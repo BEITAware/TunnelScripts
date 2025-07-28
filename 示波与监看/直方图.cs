@@ -11,13 +11,13 @@ using System.Runtime.CompilerServices;
 
 namespace Scripts.示波与监看
 {
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "直方图",
         Description = "生成输入图像的RGB直方图和统计信息，支持高位深度分析",
         Category = "示波与监看",
         Color = "#87CEEB"
     )]
-    public class HistogramScript : RevivalScriptBase
+    public class HistogramScript : TunnelExtensionScriptBase
     {
         private double _highlightClipTolerance = 0.01;
         private double _shadowClipTolerance = 0.01;

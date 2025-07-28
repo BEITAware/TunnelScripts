@@ -10,14 +10,14 @@ using Tunnel_Next.Services.Scripting;
 namespace TNX_Scripts.ScriptPrototypes
 {
     // 新增脚本：用于生成彩色CFA示意图（Bayer / X-Trans 等）
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "CFA 生成器",
         Author = "BEITAware",
         Description = "生成常见彩色 CFA（Bayer、X-Trans）图样",
         Version = "1.0",
         Category = "图像生成",
         Color = "#FFAA00")]
-    public class CFAGeneratorScript : RevivalScriptBase
+    public class CFAGeneratorScript : TunnelExtensionScriptBase
     {
         // CFA 类型
         public enum CFAPatternType
@@ -336,7 +336,7 @@ namespace TNX_Scripts.ScriptPrototypes
 
         private void NotifyParameterChanged(string paramName, object oldVal, object newVal)
         {
-            if (GenScript is RevivalScriptBase rsb)
+            if (GenScript is TunnelExtensionScriptBase rsb)
             {
                 _ = rsb.OnParameterChangedAsync(paramName, oldVal, newVal);
             }

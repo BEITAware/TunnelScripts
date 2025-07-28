@@ -9,7 +9,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "基本处理",
     Author = "BEITAware",
     Description = "基本图像处理：亮度、对比度、饱和度、色调、白平衡调整",
@@ -17,7 +17,7 @@ using OpenCvSharp;
     Category = "图像处理",
     Color = "#90EE90"
 )]
-public class BasicProcessingScript : RevivalScriptBase
+public class BasicProcessingScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "亮度", Description = "调整图像亮度 (-100 到 100)", Order = 0)]
     public double Brightness { get; set; } = 0;
@@ -623,7 +623,7 @@ public class BasicProcessingViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

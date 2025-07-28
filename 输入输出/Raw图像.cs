@@ -11,7 +11,7 @@ using OpenCvSharp;
 using Microsoft.Win32;
 using Sdcb.LibRaw;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "Raw图像输入",
     Author = "BEITAware",
     Description = "从Raw文件加载图像并向下游输出",
@@ -19,7 +19,7 @@ using Sdcb.LibRaw;
     Category = "输入输出",
     Color = "#B0C4DE"
 )]
-public class ImageInputScript : RevivalScriptBase
+public class ImageInputScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "图像路径", Description = "要加载的图像文件路径", Order = 0)]
     public string ImagePath { get; set; } = string.Empty;
@@ -449,7 +449,7 @@ public class ImageInputScript : RevivalScriptBase
             // 回退到直接设置Script实例的属性，并手动触发参数变化事件
             ImagePath = newPath;
             // 手动触发参数变化事件，确保使用单一链路
-            if (this is RevivalScriptBase rsb)
+            if (this is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(nameof(ImagePath), newPath);
             }
@@ -458,7 +458,7 @@ public class ImageInputScript : RevivalScriptBase
         {
             // 最后的回退，也要触发参数变化事件
             ImagePath = newPath;
-            if (this is RevivalScriptBase rsb)
+            if (this is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(nameof(ImagePath), newPath);
             }
@@ -640,7 +640,7 @@ public class ImageInputViewModel : ScriptViewModelBase
 
     private void Notify(string param, object val)
     {
-        if (Script is RevivalScriptBase rsb) rsb.OnParameterChanged(param, val);
+        if (Script is TunnelExtensionScriptBase rsb) rsb.OnParameterChanged(param, val);
     }
 
     public ImageInputViewModel(ImageInputScript script) : base(script)

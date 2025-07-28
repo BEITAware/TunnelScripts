@@ -13,14 +13,14 @@ using System.Linq;
 
 namespace TNX_Scripts.ScriptPrototypes
 {
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "文字生成器",
         Author = "BEITAware",
         Description = "生成指定文字",
         Version = "1.0",
         Category = "图像生成",
         Color = "#AABBCC")]
-    public class TextImageGeneratorScript : RevivalScriptBase
+    public class TextImageGeneratorScript : TunnelExtensionScriptBase
     {
         [ScriptParameter(DisplayName = "文本内容", Description = "要渲染的文字内容", Order = 0)]
         public string Text { get; set; } = "Hello, Tunnel!";
@@ -223,10 +223,16 @@ namespace TNX_Scripts.ScriptPrototypes
         {
             if (data.TryGetValue(nameof(Text), out var txt) && txt is string s) Text = s;
             if (data.TryGetValue(nameof(FontName), out var fn) && fn is string fns) FontName = fns;
-            if (data.TryGetValue(nameof(Width), out var w) && w is int wi) Width = wi;
-            if (data.TryGetValue(nameof(Height), out var h) && h is int hi) Height = hi;
-            if (data.TryGetValue(nameof(FontScale), out var fs) && fs is double d) FontScale = d;
-            if (data.TryGetValue(nameof(Thickness), out var th) && th is int ti) Thickness = ti;
+
+            if (data.TryGetValue(nameof(Width), out var w) && w != null)
+                Width = Convert.ToInt32(w);
+            if (data.TryGetValue(nameof(Height), out var h) && h != null)
+                Height = Convert.ToInt32(h);
+
+            if (data.TryGetValue(nameof(FontScale), out var fs) && fs != null)
+                FontScale = Convert.ToDouble(fs);
+            if (data.TryGetValue(nameof(Thickness), out var th) && th != null)
+                Thickness = Convert.ToInt32(th);
         }
     }
 
@@ -328,7 +334,7 @@ namespace TNX_Scripts.ScriptPrototypes
 
         private void NotifyParameterChanged(string parameterName, object value)
         {
-            if (Script is RevivalScriptBase rsb)
+            if (Script is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(parameterName, value);
             }

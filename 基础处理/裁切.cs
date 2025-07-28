@@ -16,8 +16,8 @@ using WRect = System.Windows.Rect;
 
 namespace Tunnel_Next.Scripts
 {
-    [RevivalScript(Name = "裁切脚本", Author = "AI", Description = "支持交互式裁切", Category = "图像", Color = "#FF7043")]
-    public class CropCutScript : RevivalScriptBase, IScriptPreviewProvider
+    [TunnelExtensionScript(Name = "裁切脚本", Author = "AI", Description = "支持交互式裁切", Category = "图像", Color = "#FF7043")]
+    public class CropCutScript : TunnelExtensionScriptBase, IScriptPreviewProvider
     {
         private bool _croppingMode = false;
         private WRect _cropRectNorm = new(0, 0, 1, 1);
@@ -446,7 +446,7 @@ namespace Tunnel_Next.Scripts
 
         private class CropCutScriptViewModel : ScriptViewModelBase
         {
-            public CropCutScriptViewModel(IRevivalScript script) : base(script) { }
+            public CropCutScriptViewModel(ITunnelExtensionScript script) : base(script) { }
             public override Task OnParameterChangedAsync(string name, object old, object @new) => Task.CompletedTask;
             public override ScriptValidationResult ValidateParameter(string name, object val) => new(true);
             public override Dictionary<string, object> GetParameterData() => new();

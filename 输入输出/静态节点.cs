@@ -13,7 +13,7 @@ using OpenCvSharp;
 using System.Text;
 using Tunnel_Next.Services;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "静态节点",
     Author = "BEITAware",
     Description = "加载.tsn静态节点文件并恢复其输出内容",
@@ -21,7 +21,7 @@ using Tunnel_Next.Services;
     Category = "输入输出",
     Color = "#7A6EFF"
 )]
-public class StaticNodeScript : RevivalScriptBase
+public class StaticNodeScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "静态节点文件", Description = "要加载的.tsn静态节点文件路径", Order = 0)]
     public string FilePath { get; set; } = string.Empty;
@@ -609,8 +609,8 @@ public class StaticNodeViewModel : ScriptViewModelBase
                 // 更新静态节点信息
                 UpdateStaticNodeInfo(value);
 
-                // 使用RevivalScriptBase的OnParameterChanged通知主程序参数变化
-                if (Script is RevivalScriptBase rsb)
+                // 使用TunnelExtensionScriptBase的OnParameterChanged通知主程序参数变化
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(FilePath), value);
                 }

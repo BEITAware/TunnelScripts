@@ -9,7 +9,7 @@ using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 using Rect = OpenCvSharp.Rect;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "傅里叶逆变换A",
     Author = "BEITAware",
     Description = "傅里叶逆变换 - 从幅度谱和相位谱重建图像，支持RGBA格式",
@@ -17,7 +17,7 @@ using Rect = OpenCvSharp.Rect;
     Category = "频域处理",
     Color = "#FF6600"
 )]
-public class InverseFourierTransformScript : RevivalScriptBase
+public class InverseFourierTransformScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "逆对数变换", Description = "对幅度谱应用逆对数变换", Order = 0)]
     public bool InverseLogTransform { get; set; } = true;
@@ -679,7 +679,7 @@ public class InverseFourierTransformViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

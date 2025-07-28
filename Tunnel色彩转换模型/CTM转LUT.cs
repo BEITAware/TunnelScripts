@@ -13,7 +13,7 @@ using Microsoft.Win32;
 using System.Linq;
 using System.Text.Json;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "CTM转LUT",
     Author = "BEITAware",
     Description = "将CTM模型转换为3D LUT格式文件",
@@ -21,7 +21,7 @@ using System.Text.Json;
     Category = "Tunnel色彩转换模型",
     Color = "#E74C3C"
 )]
-public class CTMToLUTScript : RevivalScriptBase
+public class CTMToLUTScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "LUT网格大小", Description = "3D LUT的网格大小（如33表示33x33x33）", Order = 0)]
     public int GridSize { get; set; } = 33;
@@ -266,7 +266,7 @@ public class CTMToLUTViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

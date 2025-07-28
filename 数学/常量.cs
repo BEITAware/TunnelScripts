@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "常量",
     Author = "BEITAware",
     Description = "提供一个数值常量：创建1x1像素的RGBA图像，填充用户指定的常量值",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#7FFFAA"
 )]
-public class ConstantScript : RevivalScriptBase
+public class ConstantScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "数值", Description = "常量数值", Order = 0)]
     public string Value { get; set; } = "1.0";
@@ -175,7 +175,7 @@ public class ConstantViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

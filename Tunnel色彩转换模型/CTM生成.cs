@@ -12,7 +12,7 @@ using MathNet.Numerics.LinearRegression;
 using System.Linq;
 using System.Text.Json;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "CTM生成",
     Author = "BEITAware", 
     Description = "生成颜色转换模型（CTM），使用多项式回归建立颜色映射关系",
@@ -20,7 +20,7 @@ using System.Text.Json;
     Category = "Tunnel色彩转换模型",
     Color = "#4ECDC4"
 )]
-public class CTMGenerationScript : RevivalScriptBase
+public class CTMGenerationScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "多项式度数", Description = "多项式回归的度数", Order = 0)]
     public int PolynomialDegree { get; set; } = 2;
@@ -369,7 +369,7 @@ public class CTMGenerationViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

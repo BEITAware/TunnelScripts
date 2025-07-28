@@ -10,14 +10,14 @@ using System.Windows.Data;
 
 namespace TNX_Scripts.ScriptPrototypes
 {
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "白噪声生成器",
         Author = "BEITAware",
         Description = "生成随机白噪声图像，可选均匀分布/高斯分布",
         Version = "1.0",
         Category = "图像生成",
         Color = "#AAAAAA")]
-    public class WhiteNoiseGeneratorScript : RevivalScriptBase
+    public class WhiteNoiseGeneratorScript : TunnelExtensionScriptBase
     {
         public enum NoiseType
         {
@@ -307,7 +307,7 @@ namespace TNX_Scripts.ScriptPrototypes
 
         private void NotifyParameterChanged(string parameterName, object value)
         {
-            if (Script is RevivalScriptBase rsb)
+            if (Script is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(parameterName, value);
             }

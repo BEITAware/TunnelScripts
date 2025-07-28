@@ -9,7 +9,7 @@ using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 using System.Linq;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "色卡采样",
     Author = "BEITAware",
     Description = "从色卡图像中采样颜色数据，输出采样数值和可视化图像",
@@ -17,7 +17,7 @@ using System.Linq;
     Category = "Tunnel色彩转换模型",
     Color = "#FF6B35"
 )]
-public class ColorCardSamplingScript : RevivalScriptBase
+public class ColorCardSamplingScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "行数", Description = "色卡的行数", Order = 0)]
     public int Rows { get; set; } = 4;
@@ -410,7 +410,7 @@ public class ColorCardSamplingViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

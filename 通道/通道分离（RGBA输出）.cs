@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "通道分离（RGBA输出）",
     Author = "BEITAware",
     Description = "通道分离器：将输入图像的每个通道分离到独立输出，拷贝到输出图像的 RGB 通道中，Alpha 恒为 1.0",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "通道",
     Color = "#33AAFF"
 )]
-public class ChannelSeparationRGBAScript : RevivalScriptBase
+public class ChannelSeparationRGBAScript : TunnelExtensionScriptBase
 {
     public string NodeInstanceId { get; set; } = string.Empty;
 

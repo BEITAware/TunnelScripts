@@ -11,7 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Text.Json;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "CTM应用",
     Author = "BEITAware",
     Description = "将CTM模型应用到图像上进行颜色转换",
@@ -19,7 +19,7 @@ using System.Text.Json;
     Category = "Tunnel色彩转换模型",
     Color = "#9B59B6"
 )]
-public class CTMApplicationScript : RevivalScriptBase
+public class CTMApplicationScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "并行处理", Description = "启用多线程并行处理", Order = 0)]
     public bool EnableParallelProcessing { get; set; } = true;
@@ -313,7 +313,7 @@ public class CTMApplicationViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

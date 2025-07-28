@@ -19,14 +19,14 @@ using System.Text.Json;
 
 namespace TNX_Scripts.ScriptPrototypes
 {
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "渐变生成器",
         Author = "BEITAware",
         Description = "生成线性/径向渐变图像，支持自定义渐变档位 (HSL)",
         Version = "1.0",
         Category = "图像生成",
         Color = "#77AAFF")]
-    public class GradientGeneratorScript : RevivalScriptBase
+    public class GradientGeneratorScript : TunnelExtensionScriptBase
     {
         // Use shared enum
         public enum GradientType { Linear = 0, Radial = 1 }
@@ -577,7 +577,7 @@ namespace TNX_Scripts.ScriptPrototypes
 
         private void NotifyParameterChanged(string parameterName, object value)
         {
-            if (Script is RevivalScriptBase rsb)
+            if (Script is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(parameterName, value);
             }

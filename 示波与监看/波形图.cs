@@ -11,13 +11,13 @@ using System.Runtime.CompilerServices;
 
 namespace Scripts.示波与监看
 {
-    [RevivalScript(
+    [TunnelExtensionScript(
         Name = "波形图",
         Description = "生成输入图像的波形图，显示每列像素的亮度分布",
         Category = "示波与监看",
         Color = "#32CD32"
     )]
-    public class WaveformScript : RevivalScriptBase
+    public class WaveformScript : TunnelExtensionScriptBase
     {
         private double _gain = 1.0;
         private int _luminanceBins = 256;

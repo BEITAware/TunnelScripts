@@ -8,14 +8,14 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "混淆图像-Revised",
     Author = "BEITAware",
     Description = "基于 16×16 分块、块/通道可逆打乱的图像加密脚本",
     Version = "1.0",
     Category = "Security",
     Color = "#8E44AD")]
-public class BlockScrambleEncryptorScriptRV : RevivalScriptBase
+public class BlockScrambleEncryptorScriptRV : TunnelExtensionScriptBase
 {
     // --------------- 参数 -----------------
     [ScriptParameter(DisplayName = "Seed", Description = "随机种子，保证加密/解密一致", Order = 0)]

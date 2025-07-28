@@ -21,7 +21,7 @@ public enum ReconstructionQuality
     Ultra
 }
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "傅里叶逆变换",
     Author = "BEITAware",
     Description = "傅里叶逆变换 - 从幅度谱和相位谱重建原始图像，支持RGBA格式",
@@ -29,7 +29,7 @@ public enum ReconstructionQuality
     Category = "频域处理",
     Color = "#FF6633"
 )]
-public class InverseFourierTransformScript : RevivalScriptBase
+public class InverseFourierTransformScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "自动检测参数", Description = "从元数据自动检测原始变换参数", Order = 0)]
     public bool AutoDetectParameters { get; set; } = true;
@@ -1080,7 +1080,7 @@ public class InverseFourierTransformViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

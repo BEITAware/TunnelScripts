@@ -12,8 +12,8 @@ using System.Runtime.CompilerServices;
 
 namespace Tunnel_Next.Scripts
 {
-    [RevivalScript(Name = "3D 投影", Author = "AI", Description = "3D 旋转/平移+透视投影", Version = "1.1", Category = "投影与混合", Color = "#4169E1")]
-    public class ProjectionScript : RevivalScriptBase
+    [TunnelExtensionScript(Name = "3D 投影", Author = "AI", Description = "3D 旋转/平移+透视投影", Version = "1.1", Category = "投影与混合", Color = "#4169E1")]
+    public class ProjectionScript : TunnelExtensionScriptBase
     {
         static ProjectionScript()
         {
@@ -262,7 +262,7 @@ namespace Tunnel_Next.Scripts
             public ProjectionVM(ProjectionScript s):base(s){}
             public double ThetaX{get=>S.ThetaX;set=>Set(nameof(ThetaX),value,v=>S.ThetaX=v);}        public double ThetaY{get=>S.ThetaY;set=>Set(nameof(ThetaY),value,v=>S.ThetaY=v);}        public double ThetaZ{get=>S.ThetaZ;set=>Set(nameof(ThetaZ),value,v=>S.ThetaZ=v);}        public double Tx{get=>S.Tx;set=>Set(nameof(Tx),value,v=>S.Tx=v);}        public double Ty{get=>S.Ty;set=>Set(nameof(Ty),value,v=>S.Ty=v);}        public double Distance{get=>S.Distance;set=>Set(nameof(Distance),value,v=>S.Distance=v);}        public double ScalePercent{get=>S.ScalePercent;set=>Set(nameof(ScalePercent),value,v=>S.ScalePercent=v);}            
             private void Set(string n,double val,Action<double> assign){ if(Math.Abs(val-Convert.ToDouble(GetType().GetProperty(n)?.GetValue(this)))<1e-4) return; var old=GetType().GetProperty(n)?.GetValue(this); assign(val); OnPropertyChanged(n); NotifyParameterChanged(n,val); }
-            private void NotifyParameterChanged(string p,object v){ if(S is RevivalScriptBase rsb) rsb.OnParameterChanged(p,v);}            
+            private void NotifyParameterChanged(string p,object v){ if(S is TunnelExtensionScriptBase rsb) rsb.OnParameterChanged(p,v);}            
             public async Task Reset(){ThetaX=ThetaY=ThetaZ=Tx=Ty=0;Distance=1000;ScalePercent=100;await Task.CompletedTask;}
             public override Task OnParameterChangedAsync(string p, object o, object n)=>Task.CompletedTask;            public override ScriptValidationResult ValidateParameter(string p, object v)=>new(true);            public override Dictionary<string, object> GetParameterData()=>new(){[nameof(ThetaX)]=ThetaX,[nameof(ThetaY)]=ThetaY,[nameof(ThetaZ)]=ThetaZ,[nameof(Tx)]=Tx,[nameof(Ty)]=Ty,[nameof(Distance)]=Distance,[nameof(ScalePercent)]=ScalePercent};            public override Task SetParameterDataAsync(Dictionary<string, object> d)=>Task.CompletedTask;            public override Task ResetToDefaultAsync()=>Reset();
         }

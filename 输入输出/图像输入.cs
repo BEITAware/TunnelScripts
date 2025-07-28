@@ -11,7 +11,7 @@ using OpenCvSharp;
 using Microsoft.Win32;
 using System.Text.RegularExpressions;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "图像输入",
     Author = "BEITAware",
     Description = "从文件加载图像并向下游输出",
@@ -19,7 +19,7 @@ using System.Text.RegularExpressions;
     Category = "输入输出",
     Color = "#4ECDC4"
 )]
-public class ImageInputScript : RevivalScriptBase
+public class ImageInputScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "图像路径", Description = "要加载的图像文件路径", Order = 0)]
     public string ImagePath { get; set; } = string.Empty;
@@ -391,7 +391,7 @@ public class ImageInputScript : RevivalScriptBase
             // 回退到直接设置Script实例的属性，并手动触发参数变化事件
             ImagePath = newPath;
             // 手动触发参数变化事件，确保使用单一链路
-            if (this is RevivalScriptBase rsb)
+            if (this is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(nameof(ImagePath), newPath);
             }
@@ -400,7 +400,7 @@ public class ImageInputScript : RevivalScriptBase
         {
             // 最后的回退，也要触发参数变化事件
             ImagePath = newPath;
-            if (this is RevivalScriptBase rsb)
+            if (this is TunnelExtensionScriptBase rsb)
             {
                 rsb.OnParameterChanged(nameof(ImagePath), newPath);
             }
@@ -491,15 +491,15 @@ public class ImageInputViewModel : ScriptViewModelBase
                 // 更新图像信息
                 UpdateImageInfo(value);
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序参数变化
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序参数变化
                 // 这将触发整个图像处理流水线的重新计算
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(ImagePath), value);
                 }
                 else
                 {
-                    // 仅作为备选方案，如果Script不是RevivalScriptBase类型
+                    // 仅作为备选方案，如果Script不是TunnelExtensionScriptBase类型
                     _ = Script.OnParameterChangedAsync(nameof(ImagePath), oldValue, value);
                 }
             }

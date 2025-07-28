@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "反相",
     Author = "BEITAware",
     Description = "反相图像",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#FF00FF"
 )]
-public class InvertScript : RevivalScriptBase
+public class InvertScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "包含Alpha通道", Description = "是否对Alpha通道也进行取反操作", Order = 0)]
     public bool IncludeAlpha { get; set; } = false;
@@ -276,7 +276,7 @@ public class InvertViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

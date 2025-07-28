@@ -10,7 +10,7 @@ using OpenCvSharp;
 using Size = OpenCvSharp.Size;
 using Rect = OpenCvSharp.Rect;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "傅里叶变换",
     Author = "BEITAware",
     Description = "傅里叶变换 - 生成幅度谱和相位谱，支持RGBA格式",
@@ -18,7 +18,7 @@ using Rect = OpenCvSharp.Rect;
     Category = "频域处理",
     Color = "#3399FF"
 )]
-public class FourierTransformScript : RevivalScriptBase
+public class FourierTransformScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "应用对数变换", Description = "对幅度谱应用对数变换以增强可视化效果", Order = 0)]
     public bool ApplyLogTransform { get; set; } = true;
@@ -697,7 +697,7 @@ public class FourierTransformViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

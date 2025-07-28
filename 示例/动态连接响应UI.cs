@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "动态连接响应UI",
     Author = "示例",
     Description = "根据连接数量动态变化GUI的示例脚本，无需重新加载",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "示例",
     Color = "#FF6B35"
 )]
-public class DynamicConnectionUIScript : DynamicUIRevivalScriptBase
+public class DynamicConnectionUIScript : DynamicUITunnelExtensionScriptBase
 {
     // 参数
     [ScriptParameter(DisplayName = "基础强度", Description = "始终显示的基础参数", Order = 0)]

@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "Alpha通道处理",
     Author = "BEITAware",
     Description = "处理图像的Alpha透明度通道",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "图像处理",
     Color = "#9B59B6"
 )]
-public class AlphaChannelScript : RevivalScriptBase
+public class AlphaChannelScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "操作类型", Description = "选择Alpha通道操作", Order = 0)]
     public string Operation { get; set; } = "调整透明度";
@@ -376,7 +376,7 @@ public class AlphaChannelViewModel : ScriptViewModelBase
                 AlphaChannelScript.Operation = value;
                 OnPropertyChanged();
 
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(Operation), value);
                 }
@@ -396,7 +396,7 @@ public class AlphaChannelViewModel : ScriptViewModelBase
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(AlphaValueText));
 
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(AlphaValue), clampedValue);
                 }
@@ -416,7 +416,7 @@ public class AlphaChannelViewModel : ScriptViewModelBase
                 AlphaChannelScript.InvertAlpha = value;
                 OnPropertyChanged();
 
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(InvertAlpha), value);
                 }

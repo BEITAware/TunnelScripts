@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "卷积",
     Author = "BEITAware",
     Description = "利用内置或输入的卷积核执行卷积运算",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "卷积",
     Color = "#FFFF00"
 )]
-public class ConvolutionScript : RevivalScriptBase
+public class ConvolutionScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "内置核类型", Description = "当没有外部核输入时使用的内置卷积核类型", Order = 0)]
     public string KernelType { get; set; } = "sharpen";
@@ -810,7 +810,7 @@ public class ConvolutionViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

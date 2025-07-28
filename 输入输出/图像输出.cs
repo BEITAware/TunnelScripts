@@ -10,7 +10,7 @@ using OpenCvSharp;
 using Microsoft.Win32;
 using System.Text.RegularExpressions; // add for placeholder replacement
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "图像输出",
     Author = "BEITAware",
     Description = "将图像保存到文件",
@@ -18,7 +18,7 @@ using System.Text.RegularExpressions; // add for placeholder replacement
     Category = "输入输出",
     Color = "#FF6B6B"
 )]
-public class ImageOutputScript : RevivalScriptBase
+public class ImageOutputScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "保存路径")]
     public string SavePath { get; set; } = string.Empty;
@@ -435,7 +435,7 @@ public class ImageOutputViewModel : ScriptViewModelBase
                 OnPropertyChanged();
 
                 // 直接触发参数变化
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(SavePath), value);
                 }
@@ -456,7 +456,7 @@ public class ImageOutputViewModel : ScriptViewModelBase
                 OnPropertyChanged(nameof(QualityText)); // 同时更新QualityText
 
                 // 直接触发参数变化
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(Quality), clampedValue);
                 }
@@ -477,7 +477,7 @@ public class ImageOutputViewModel : ScriptViewModelBase
                 OnPropertyChanged();
 
                 // 直接触发参数变化
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(AutoSave), value);
                 }
@@ -496,7 +496,7 @@ public class ImageOutputViewModel : ScriptViewModelBase
                 OnPropertyChanged();
 
                 // 直接触发参数变化
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(SaveAlpha), value);
                 }

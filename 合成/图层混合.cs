@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Threading;
 using System.Threading.Tasks;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "图层混合",
     Author = "BEITAware",
     Description = "多图层混合工具",
@@ -19,7 +19,7 @@ using System.Threading.Tasks;
     Category = "图像处理",
     Color = "#FF6B35"
 )]
-public class FlexibleImageBlendScript : RevivalScriptBase
+public class FlexibleImageBlendScript : TunnelExtensionScriptBase
 {
     public enum BlendMode
     {

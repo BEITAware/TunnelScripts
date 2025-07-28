@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "布尔取反",
     Author = "BEITAware",
     Description = "布尔取反：先将输入图像转灰度并二值化 (>0→1, ≤0→0)，然后将 1→0、0→1",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#AA33CC"
 )]
-public class BooleanInvertScript : RevivalScriptBase
+public class BooleanInvertScript : TunnelExtensionScriptBase
 {
     public string NodeInstanceId { get; set; } = string.Empty;
 

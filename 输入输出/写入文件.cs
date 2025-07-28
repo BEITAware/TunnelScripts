@@ -11,7 +11,7 @@ using Microsoft.Win32;
 using System.IO;
 using System.Text;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "写入文件",
     Author = "BEITAware",
     Description = "将任意数据写入到文件",
@@ -19,7 +19,7 @@ using System.Text;
     Category = "输入输出",
     Color = "#E67E22"
 )]
-public class WriteFileScript : RevivalScriptBase
+public class WriteFileScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "文件路径", Description = "要保存的文件路径（包含扩展名）", Order = 0)]
     public string FilePath { get; set; } = string.Empty;
@@ -345,7 +345,7 @@ public class WriteFileViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

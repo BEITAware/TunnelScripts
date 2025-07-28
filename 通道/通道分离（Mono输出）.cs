@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "通道分离（Mono输出）",
     Author = "BEITAware",
     Description = "将输入图像分离为四个独立单通道输出",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "通道",
     Color = "#4682B4"
 )]
-public class ChannelSeparationMonoScript : RevivalScriptBase
+public class ChannelSeparationMonoScript : TunnelExtensionScriptBase
 {
     public string NodeInstanceId { get; set; } = string.Empty;
 

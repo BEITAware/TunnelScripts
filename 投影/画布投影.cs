@@ -11,8 +11,8 @@ using Tunnel_Next.Services.Scripting;
 
 namespace Tunnel_Next.Scripts
 {
-    [RevivalScript(Name = "画布投影", Author = "AI", Description = "将多个投影图像映射到参考画布", Category = "投影与混合", Color = "#9370DB", Version = "1.0")]
-    public class CanvasProjectionScript : RevivalScriptBase
+    [TunnelExtensionScript(Name = "画布投影", Author = "AI", Description = "将多个投影图像映射到参考画布", Category = "投影与混合", Color = "#9370DB", Version = "1.0")]
+    public class CanvasProjectionScript : TunnelExtensionScriptBase
     {
         private ProjectionParam _param = new ProjectionParam();
 
@@ -297,7 +297,7 @@ namespace Tunnel_Next.Scripts
                 var old = field;
                 field = val;
                 OnPropertyChanged(name);
-                if (Script is RevivalScriptBase rsb)
+                if (Script is TunnelExtensionScriptBase rsb)
                     rsb.OnParameterChanged(name, val);
             }
             public double ThetaX { get => _p.ThetaX; set => Set(nameof(ThetaX), ref _p.ThetaX, value); }

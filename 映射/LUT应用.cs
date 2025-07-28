@@ -11,7 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Globalization;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "LUT应用",
     Author = "BEITAware",
     Description = "将3D LUT应用到图像上进行颜色映射",
@@ -19,7 +19,7 @@ using System.Globalization;
     Category = "映射",
     Color = "#3498DB"
 )]
-public class LUTApplicationScript : RevivalScriptBase
+public class LUTApplicationScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "插值方式", Description = "LUT插值方式", Order = 0)]
     public string InterpolationMethod { get; set; } = "三线性插值";
@@ -479,7 +479,7 @@ public class LUTApplicationViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

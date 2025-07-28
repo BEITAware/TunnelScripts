@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "乘法",
     Author = "BEITAware",
     Description = "图像乘法运算：支持图像与常量或图像与图像的乘法运算，可设置偏移",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#8A2BE2"
 )]
-public class MultiplicationScript : RevivalScriptBase
+public class MultiplicationScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "启用10bit数值缩放", Description = "将0-1023范围缩放到0-1范围", Order = 0)]
     public bool Enable10BitScaling { get; set; } = false;
@@ -400,7 +400,7 @@ public class MultiplicationViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

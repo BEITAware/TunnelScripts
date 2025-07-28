@@ -9,7 +9,7 @@ using System.Windows.Resources;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "预览节点",
     Author = "BEITAware",
     Description = "将图像发送到主程序的预览系统",
@@ -17,7 +17,7 @@ using OpenCvSharp;
     Category = "输入输出",
     Color = "#9B59B6"
 )]
-public class PreviewNodeScript : RevivalScriptBase
+public class PreviewNodeScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "启用预览", Description = "是否启用图像预览", Order = 0)]
     public bool EnablePreview { get; set; } = true;
@@ -571,8 +571,8 @@ public class PreviewNodeViewModel : ScriptViewModelBase
                 PreviewNodeScript.EnablePreview = value;
                 OnPropertyChanged();
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序
-                if (Script is RevivalScriptBase rsb)
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(EnablePreview), value);
                 }
@@ -595,8 +595,8 @@ public class PreviewNodeViewModel : ScriptViewModelBase
                 PreviewNodeScript.PreviewTitle = value;
                 OnPropertyChanged();
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序
-                if (Script is RevivalScriptBase rsb)
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(PreviewTitle), value);
                 }
@@ -619,8 +619,8 @@ public class PreviewNodeViewModel : ScriptViewModelBase
                 PreviewNodeScript.AutoScale = value;
                 OnPropertyChanged();
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序
-                if (Script is RevivalScriptBase rsb)
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(AutoScale), value);
                 }
@@ -643,8 +643,8 @@ public class PreviewNodeViewModel : ScriptViewModelBase
                 PreviewNodeScript.ShowInfo = value;
                 OnPropertyChanged();
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序
-                if (Script is RevivalScriptBase rsb)
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(ShowInfo), value);
                 }
@@ -667,8 +667,8 @@ public class PreviewNodeViewModel : ScriptViewModelBase
                 PreviewNodeScript.ZoomLevel = value;
                 OnPropertyChanged();
 
-                // 确保使用RevivalScriptBase的OnParameterChanged通知主程序
-                if (Script is RevivalScriptBase rsb)
+                // 确保使用TunnelExtensionScriptBase的OnParameterChanged通知主程序
+                if (Script is TunnelExtensionScriptBase rsb)
                 {
                     rsb.OnParameterChanged(nameof(ZoomLevel), value);
                 }

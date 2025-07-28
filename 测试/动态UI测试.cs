@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "动态UI测试",
     Author = "测试",
     Description = "测试动态UI更新功能",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "测试",
     Color = "#FF6B35"
 )]
-public class DynamicUITestScript : DynamicUIRevivalScriptBase
+public class DynamicUITestScript : DynamicUITunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "基础参数", Order = 0)]
     public double BaseValue { get; set; } = 50;

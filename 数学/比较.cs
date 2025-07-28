@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "比较",
     Author = "BEITAware",
     Description = "逐像素比较两张图像，RGB通道独立比较",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#9370DB"
 )]
-public class ComparisonScript : RevivalScriptBase
+public class ComparisonScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "比较类型", Description = "选择比较操作类型", Order = 0)]
     public string ComparisonType { get; set; } = "大于";
@@ -457,7 +457,7 @@ public class ComparisonViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

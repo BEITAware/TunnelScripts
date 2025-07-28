@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "倒影",
     Author = "BEITAware",
     Description = "在图像下方添加镜面倒影效果",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "几何",
     Color = "#00BFFF"
 )]
-public class ReflectionScript : RevivalScriptBase
+public class ReflectionScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "倒影高度比例", Description = "倒影占原图高度的比例 (0.0-1.0)", Order = 0)]
     public double ReflectionRatio { get; set; } = 1.0;
@@ -370,7 +370,7 @@ public class ReflectionViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

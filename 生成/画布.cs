@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "画布",
     Author = "BEITAware",
     Description = "创建指定大小的空白透明画布",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "生成器",
     Color = "#2E8B57"
 )]
-public class CanvasScript : RevivalScriptBase
+public class CanvasScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "宽度", Description = "画布宽度（像素）", Order = 0)]
     public int Width { get; set; } = 512;
@@ -225,7 +225,7 @@ public class CanvasViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

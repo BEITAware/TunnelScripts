@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "反相 Alpha",
     Author = "BEITAware",
     Description = "反相图像，包含Alpha通道",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#FF00FF"
 )]
-public class InvertWithAlphaScript : RevivalScriptBase
+public class InvertWithAlphaScript : TunnelExtensionScriptBase
 {
     public string NodeInstanceId { get; set; } = string.Empty;
 

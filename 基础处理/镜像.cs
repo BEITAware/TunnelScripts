@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "镜像",
     Author = "BEITAware",
     Description = "左右镜像图像，支持Alpha通道，可选自适应边界裁切",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "几何",
     Color = "#4A90E2"
 )]
-public class MirrorScript : RevivalScriptBase
+public class MirrorScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "镜像方向", Description = "选择镜像方向", Order = 0)]
     public string Direction { get; set; } = "水平";
@@ -344,7 +344,7 @@ public class MirrorViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

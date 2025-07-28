@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "比较加和",
     Author = "BEITAware",
     Description = "比较加和节点 - 比较多个图像并叠加显示",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "数学",
     Color = "#48B6FF"
 )]
-public class ComparisonSumScript : RevivalScriptBase
+public class ComparisonSumScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "比较类型", Description = "选择比较操作类型", Order = 0)]
     public string CompareType { get; set; } = "greater";
@@ -535,7 +535,7 @@ public class ComparisonSumViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

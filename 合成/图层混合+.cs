@@ -11,14 +11,14 @@ using CvSize = OpenCvSharp.Size;
 using CvRect = OpenCvSharp.Rect;
 
 // GPU-Style recursive layer blending script (Normal mode only)
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "图层混合+",
     Author = "BEITAware",
     Description = "基准画布 + 递归 Normal 混合",
     Version = "2.0",
     Category = "图像处理",
     Color = "#191970")]
-public class GpuLayerBlendScript : DynamicUIRevivalScriptBase
+public class GpuLayerBlendScript : DynamicUITunnelExtensionScriptBase
 {
     // ---------------- Parameters ----------------
     [ScriptParameter(DisplayName = "全局不透明度", Description = "所有图层的全局不透明度 0-1")]
@@ -321,11 +321,13 @@ public class GpuLayerBlendScript : DynamicUIRevivalScriptBase
         {
             if (!kv.Key.StartsWith("Layer_")) continue;
 
-            var parts = kv.Key.Split('_');
-            if (parts.Length != 3) continue; // Layer_LayerKey_Property
+            // 支持包含下划线的动态端口名称
+            var keyWithoutPrefix = kv.Key.Substring("Layer_".Length);
+            var lastUnderscoreIndex = keyWithoutPrefix.LastIndexOf('_');
+            if (lastUnderscoreIndex < 0) continue; // 无效格式
 
-            var layerKey = parts[1];
-            var prop = parts[2];
+            var layerKey = keyWithoutPrefix.Substring(0, lastUnderscoreIndex);
+            var prop = keyWithoutPrefix.Substring(lastUnderscoreIndex + 1);
 
             if (!_layerParams.TryGetValue(layerKey, out var lt))
             {

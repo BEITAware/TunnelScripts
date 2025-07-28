@@ -23,7 +23,7 @@ public enum KernelPreset
     laplacian
 }
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "卷积核节点",
     Author = "BEITAware",
     Description = "生成卷积核",
@@ -31,7 +31,7 @@ public enum KernelPreset
     Category = "卷积",
     Color = "#FF9900"
 )]
-public class ConvolutionKernelScript : RevivalScriptBase
+public class ConvolutionKernelScript : TunnelExtensionScriptBase
 {
     [ScriptParameter(DisplayName = "核类型", Description = "卷积核的类型", Order = 0)]
     public KernelPreset KernelType { get; set; } = KernelPreset.sharpen;
@@ -801,7 +801,7 @@ public class ConvolutionKernelViewModel : ScriptViewModelBase
 
     private void NotifyParameterChanged(string parameterName, object value)
     {
-        if (Script is RevivalScriptBase rsb)
+        if (Script is TunnelExtensionScriptBase rsb)
         {
             rsb.OnParameterChanged(parameterName, value);
         }

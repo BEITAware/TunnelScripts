@@ -8,7 +8,7 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using OpenCvSharp;
 
-[RevivalScript(
+[TunnelExtensionScript(
     Name = "通道合成（RGBA输出）",
     Author = "BEITAware",
     Description = "RGBA 通道合成：从四路输入图像分别提取 R/G/B/A 通道并合成一张 RGBA 图像（自动归一化整数输入到0-1范围）",
@@ -16,7 +16,7 @@ using OpenCvSharp;
     Category = "通道",
     Color = "#FF9933"
 )]
-public class ChannelCompositionRGBAScript : RevivalScriptBase
+public class ChannelCompositionRGBAScript : TunnelExtensionScriptBase
 {
     public string NodeInstanceId { get; set; } = string.Empty;
 
