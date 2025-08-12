@@ -93,9 +93,8 @@ public class PreviewNodeScript : TunnelExtensionScriptBase
                 // 记录处理前的图像信息
                 var beforeClone = DateTime.Now;
 
-                // 返回输入图像的克隆（不添加信息叠加）
-                // 克隆很重要，这样预览节点不会意外释放上游节点可能仍在使用的Mat
-                var outputMat = inputMat.Clone();
+                // 直接返回输入图像引用（OpenCV Mat 使用引用计数）
+                var outputMat = inputMat;
 
                 // 记录处理后的图像信息
                 var afterClone = DateTime.Now;
@@ -123,10 +122,8 @@ public class PreviewNodeScript : TunnelExtensionScriptBase
             }
             else
             {
-                // 如果禁用预览，直接传递图像的克隆
-
-                // 即使禁用预览，我们也需要克隆，以避免内存管理问题
-                var disabledOutput = inputMat.Clone();
+                // 如果禁用预览，仍直接传递引用即可
+                var disabledOutput = inputMat;
 
                 return new Dictionary<string, object>
                 {
@@ -139,7 +136,7 @@ public class PreviewNodeScript : TunnelExtensionScriptBase
             // 发生异常时尝试返回原始图像的安全副本
             return new Dictionary<string, object>
             {
-                ["f32bmp"] = inputMat?.Clone() ?? new Mat()
+                ["f32bmp"] = inputMat ?? new Mat()
             };
         }
     }
