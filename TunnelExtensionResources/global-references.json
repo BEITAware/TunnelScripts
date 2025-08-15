@@ -10,6 +10,16 @@
     "System.Windows.Forms.dll",
     "System.Private.Uri.dll",
     "OpenCvSharp4.WpfExtensions.dll",
-    "MathNet.Numerics.dll"
+    "MathNet.Numerics.dll",
+    "System.Numerics.dll",
+    "Vortice.Direct3D11.dll",
+    "Vortice.DXGI.dll",
+    "Vortice.DirectX.dll",
+    "Vortice.Direct2D1.dll",
+    "Vortice.Mathematics.dll",
+    "Vortice.Win32.Graphics.Imaging.dll",
+    "Vortice.Win32.dll",
+    "SharpGen.Runtime.dll",
+    "SharpGen.Runtime.COM.dll"
   ]
 }
