@@ -126,6 +126,11 @@ public class ExportQuadrantsScript : TunnelExtensionScriptBase
             // 获取网格线颜色
             var gridColor = _colorMap.TryGetValue(GridColor, out var color) ? color : _colorMap["红色"];
 
+            if (result.Depth() == MatType.CV_32F || result.Depth() == MatType.CV_64F)
+                gridColor = new Scalar(gridColor.Val0 / 255.0, gridColor.Val1 / 255.0, gridColor.Val2 / 255.0, 1.0);
+            else if (result.Depth() == MatType.CV_16U)
+                gridColor = new Scalar(gridColor.Val0 * 257, gridColor.Val1 * 257, gridColor.Val2 * 257, 65535);
+
             // 绘制水平线
             Cv2.Line(result,
                 new OpenCvSharp.Point(0, centerY),
@@ -583,6 +588,7 @@ public class ExportQuadrantsViewModel : ScriptViewModelBase
             {
                 ExportScript.ExportDirectory = value;
                 OnPropertyChanged();
+                ExportScript.OnParameterChanged(nameof(ExportDirectory), value);
             }
         }
     }
@@ -596,6 +602,7 @@ public class ExportQuadrantsViewModel : ScriptViewModelBase
             {
                 ExportScript.FilenamePrefix = value;
                 OnPropertyChanged();
+                ExportScript.OnParameterChanged(nameof(FilenamePrefix), value);
             }
         }
     }
@@ -609,6 +616,7 @@ public class ExportQuadrantsViewModel : ScriptViewModelBase
             {
                 ExportScript.ShowGrid = value;
                 OnPropertyChanged();
+                ExportScript.OnParameterChanged(nameof(ShowGrid), value);
             }
         }
     }
@@ -622,6 +630,7 @@ public class ExportQuadrantsViewModel : ScriptViewModelBase
             {
                 ExportScript.GridThickness = value;
                 OnPropertyChanged();
+                ExportScript.OnParameterChanged(nameof(GridThickness), value);
             }
         }
     }
@@ -635,6 +644,7 @@ public class ExportQuadrantsViewModel : ScriptViewModelBase
             {
                 ExportScript.GridColor = value;
                 OnPropertyChanged();
+                ExportScript.OnParameterChanged(nameof(GridColor), value);
             }
         }
     }

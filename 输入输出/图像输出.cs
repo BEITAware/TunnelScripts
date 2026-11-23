@@ -94,18 +94,18 @@ public class ImageOutputScript : TunnelExtensionScriptBase
                 {
                     var key = kv.Key;
                     var value = kv.Value?.ToString() ?? string.Empty;
-                    path = System.Text.RegularExpressions.Regex.Replace(path, $"\\{{{System.Text.RegularExpressions.Regex.Escape(key)}\\}}", value, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    path = System.Text.RegularExpressions.Regex.Replace(path, $"\\{{{System.Text.RegularExpressions.Regex.Escape(key)}\\}}", _ => value, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 }
             }
         }
         // 兼容旧有字段
         if (!string.IsNullOrEmpty(_nodeGraphName))
         {
-            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{NodegraphName\\}", _nodeGraphName, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{NodegraphName\\}", _ => _nodeGraphName, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
         if (!string.IsNullOrEmpty(_index))
         {
-            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{Index\\}", _index, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            path = System.Text.RegularExpressions.Regex.Replace(path, "\\{Index\\}", _ => _index, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
         return path;
     }
@@ -131,79 +131,55 @@ public class ImageOutputScript : TunnelExtensionScriptBase
 
     private void SaveImage(Mat inputMat, string path)
     {
+        var target = System.IO.Path.GetFullPath(path);
+        var directory = System.IO.Path.GetDirectoryName(target);
+        var extension = System.IO.Path.GetExtension(target).ToLowerInvariant();
+        var temporary = System.IO.Path.Combine(directory, $".{Guid.NewGuid():N}{extension}");
         try
         {
-            // 确保目录存在
-            var directory = System.IO.Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory) && !System.IO.Directory.Exists(directory))
+            System.IO.Directory.CreateDirectory(directory);
+            var supportsAlpha = extension is ".png" or ".tif" or ".tiff";
+            using var encodedPixels = ConvertFromRGBA32F(inputMat, supportsAlpha && SaveAlpha);
+            var parameters = extension switch
             {
-                System.IO.Directory.CreateDirectory(directory);
-            }
+                ".jpg" or ".jpeg" => new[] { (int)ImwriteFlags.JpegQuality, Quality },
+                ".png" => new[] { (int)ImwriteFlags.PngCompression, 9 },
+                _ => Array.Empty<int>()
+            };
+            if (!Cv2.ImWrite(temporary, encodedPixels, parameters))
+                throw new System.IO.IOException("图像编码器未写入图像");
 
-            // 根据文件扩展名和Alpha支持情况转换图像
-            var extension = System.IO.Path.GetExtension(path).ToLower();
-            var supportsAlpha = extension == ".png" || extension == ".tiff" || extension == ".tif";
-
-
-            var outputMat = ConvertFromRGBA32F(inputMat, supportsAlpha && SaveAlpha);
-
-            // 根据文件扩展名设置保存参数
-            var saveParams = new int[0];
-
-            if (extension == ".jpg" || extension == ".jpeg")
-            {
-                saveParams = new int[] { (int)ImwriteFlags.JpegQuality, Quality };
-            }
-            else if (extension == ".png")
-            {
-                saveParams = new int[] { (int)ImwriteFlags.PngCompression, 9 };
-            }
-
-            Cv2.ImWrite(path, outputMat, saveParams);
-
-
-            outputMat.Dispose();
+            System.IO.File.Move(temporary, target, true);
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"保存图像失败: {ex.Message}");
+            throw new InvalidOperationException($"保存图像失败: {ex.Message}", ex);
+        }
+        finally
+        {
+            if (System.IO.File.Exists(temporary))
+                System.IO.File.Delete(temporary);
         }
     }
 
-    /// <summary>
-    /// 将32位浮点RGBA格式转换为适合保存的格式
-    /// 根据目标格式决定是否保留Alpha通道
-    /// </summary>
     private Mat ConvertFromRGBA32F(Mat inputMat, bool preserveAlpha)
     {
-        var outputMat = new Mat();
-
-
-        if (preserveAlpha && inputMat.Channels() == 4)
+        // Tunnel 的 OpenCV 图像和 ImWrite 都使用 BGR(A) 通道顺序。
+        double scale = inputMat.Depth() switch
         {
-            // 保留Alpha通道，转换为8位RGBA
-            inputMat.ConvertTo(outputMat, MatType.CV_8UC4, 255.0);
-        }
-        else
-        {
-            // 不保留Alpha通道或输入不是4通道，转换为8位RGB
+            MatType.CV_8U => 1.0,
+            MatType.CV_16U => 255.0 / 65535.0,
+            MatType.CV_32F or MatType.CV_64F => 255.0,
+            _ => throw new NotSupportedException($"不支持的图像深度：{inputMat.Depth()}")
+        };
+        if (inputMat.Channels() is not (1 or 3 or 4))
+            throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
 
-            if (inputMat.Channels() == 4)
-            {
-                // 从RGBA提取RGB
-                var rgbMat = new Mat();
-                Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.RGBA2RGB);
-                rgbMat.ConvertTo(outputMat, MatType.CV_8UC3, 255.0);
-                rgbMat.Dispose();
-            }
-            else
-            {
-                // 直接转换（虽然理论上输入应该总是4通道）
-                inputMat.ConvertTo(outputMat, MatType.CV_8UC3, 255.0);
-            }
-        }
-
-        return outputMat;
+        using var pixels = new Mat();
+        inputMat.ConvertTo(pixels, MatType.CV_8U, scale);
+        if (pixels.Channels() == 4 && !preserveAlpha)
+            return pixels.CvtColor(ColorConversionCodes.BGRA2BGR);
+        return pixels.Clone();
     }
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)

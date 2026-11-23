@@ -98,7 +98,7 @@ public class ImageInputPlusScript : TunnelExtensionScriptBase
                 DeviceCreationFlags.None,
                 null,
                 out _device,
-                out _deviceContext);
+                out _deviceContext).CheckError();
         }
 
         if (_wicFactory == null)
@@ -123,8 +123,8 @@ public class ImageInputPlusScript : TunnelExtensionScriptBase
         converter.Initialize(frame, Vortice.WIC.PixelFormat.Format128bppRGBAFloat, BitmapDitherType.None, null, 0.0, BitmapPaletteType.Custom);
 
         // 计算步长
-        var stride = (uint)(width * 16); // 4 channels * 4 bytes per channel
-        var bufferSize = stride * height;
+        var stride = checked(width * 16u); // 4 channels * 4 bytes per channel
+        var bufferSize = checked(stride * height);
 
         // 创建缓冲区并复制像素数据
         var buffer = new byte[bufferSize];
@@ -132,7 +132,7 @@ public class ImageInputPlusScript : TunnelExtensionScriptBase
         {
             fixed (byte* bufferPtr = buffer)
             {
-                converter.CopyPixels(0u, stride, (nint)bufferPtr);
+                converter.CopyPixels(stride, bufferSize, (nint)bufferPtr);
             }
         }
 
@@ -180,13 +180,13 @@ public class ImageInputPlusScript : TunnelExtensionScriptBase
             {
                 var key = kv.Key;
                 var value = kv.Value?.ToString() ?? string.Empty;
-                path = Regex.Replace(path, $"\\{{{Regex.Escape(key)}\\}}", value, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, $"\\{{{Regex.Escape(key)}\\}}", _ => value, RegexOptions.IgnoreCase);
             }
             // 兼容常用占位符
             if (processorEnv.EnvironmentDictionary.TryGetValue("NodeGraphName", out var nodeGraphName))
-                path = Regex.Replace(path, "\\{NodeGraphName\\}", nodeGraphName?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, "\\{NodeGraphName\\}", _ => nodeGraphName?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
             if (processorEnv.EnvironmentDictionary.TryGetValue("Index", out var index))
-                path = Regex.Replace(path, "\\{Index\\}", index?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, "\\{Index\\}", _ => index?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
         }
         return path;
     }

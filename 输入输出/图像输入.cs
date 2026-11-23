@@ -102,13 +102,13 @@ public class ImageInputScript : TunnelExtensionScriptBase
             {
                 var key = kv.Key;
                 var value = kv.Value?.ToString() ?? string.Empty;
-                path = Regex.Replace(path, $"\\{{{Regex.Escape(key)}\\}}", value, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, $"\\{{{Regex.Escape(key)}\\}}", _ => value, RegexOptions.IgnoreCase);
             }
             // 兼容常用占位符
             if (processorEnv.EnvironmentDictionary.TryGetValue("NodeGraphName", out var nodeGraphName))
-                path = Regex.Replace(path, "\\{NodeGraphName\\}", nodeGraphName?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, "\\{NodeGraphName\\}", _ => nodeGraphName?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
             if (processorEnv.EnvironmentDictionary.TryGetValue("Index", out var index))
-                path = Regex.Replace(path, "\\{Index\\}", index?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
+                path = Regex.Replace(path, "\\{Index\\}", _ => index?.ToString() ?? string.Empty, RegexOptions.IgnoreCase);
         }
         return path;
     }
@@ -119,49 +119,24 @@ public class ImageInputScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat ConvertToRGBA32F(Mat inputMat)
     {
-        var channels = inputMat.Channels();
-        var outputMat = new Mat();
-
-
-        switch (channels)
+        double scale = inputMat.Depth() switch
         {
-            case 1: // 灰度图像
-                // 灰度 -> RGB -> RGBA
-                var rgbMat = new Mat();
-                Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.GRAY2RGB);
-
-                // RGB -> RGBA (添加Alpha通道)
-                var rgbaMat = new Mat();
-                Cv2.CvtColor(rgbMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-
-                // 转换为32位浮点
-                rgbaMat.ConvertTo(outputMat, MatType.CV_32FC4, 1.0 / 255.0);
-
-                rgbMat.Dispose();
-                rgbaMat.Dispose();
-                break;
-
-            case 3: // RGB图像
-                // RGB -> RGBA (添加Alpha通道)
-                var rgbaFromRgb = new Mat();
-                Cv2.CvtColor(inputMat, rgbaFromRgb, ColorConversionCodes.RGB2RGBA);
-
-                // 转换为32位浮点
-                rgbaFromRgb.ConvertTo(outputMat, MatType.CV_32FC4, 1.0 / 255.0);
-
-                rgbaFromRgb.Dispose();
-                break;
-
-            case 4: // RGBA图像
-                // 直接转换为32位浮点
-                inputMat.ConvertTo(outputMat, MatType.CV_32FC4, 1.0 / 255.0);
-                break;
-
-            default:
-                throw new NotSupportedException($"不支持 {channels} 通道的图像");
+            MatType.CV_8U => 1.0 / 255.0,
+            MatType.CV_16U => 1.0 / 65535.0,
+            MatType.CV_32F or MatType.CV_64F => 1.0,
+            _ => throw new NotSupportedException($"不支持的图像深度：{inputMat.Depth()}")
+        };
+        using var normalized = new Mat();
+        inputMat.ConvertTo(normalized, MatType.CV_32F, scale);
+        var output = new Mat();
+        switch (normalized.Channels())
+        {
+            case 1: Cv2.CvtColor(normalized, output, ColorConversionCodes.GRAY2BGRA); break;
+            case 3: Cv2.CvtColor(normalized, output, ColorConversionCodes.BGR2BGRA); break;
+            case 4: normalized.CopyTo(output); break;
+            default: throw new NotSupportedException($"不支持 {normalized.Channels()} 通道的图像");
         }
-
-        return outputMat;
+        return output;
     }
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)

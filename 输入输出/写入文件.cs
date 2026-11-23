@@ -118,35 +118,22 @@ public class WriteFileScript : TunnelExtensionScriptBase
                 Directory.CreateDirectory(directory);
             }
 
-            // 检查数据类型并写入
-            System.Diagnostics.Debug.WriteLine($"[写入文件] 数据类型: {data.GetType().FullName}");
-            Console.WriteLine($"[写入文件] 数据类型: {data.GetType().FullName}");
+            // 节点会在重算时覆盖原文件。新内容完整写入后才替换目标。
+            var target = Path.GetFullPath(path);
+            var temporary = Path.Combine(Path.GetDirectoryName(target), $".{Guid.NewGuid():N}.tmp");
+            try
+            {
+                if (data is byte[] bytes)
+                    File.WriteAllBytes(temporary, bytes);
+                else
+                    File.WriteAllText(temporary, data.ToString(), Encoding.UTF8);
 
-            if (data is string stringData)
-            {
-                System.Diagnostics.Debug.WriteLine($"[写入文件] 写入字符串数据，长度: {stringData.Length}");
-                Console.WriteLine($"[写入文件] 写入字符串数据，长度: {stringData.Length}");
-                File.WriteAllText(path, stringData, Encoding.UTF8);
+                File.Move(temporary, target, true);
             }
-            else if (data.GetType().Name == "Cube3DLut")
+            finally
             {
-                var stringContent = data.ToString();
-                System.Diagnostics.Debug.WriteLine($"[写入文件] 写入Cube3DLut数据，转换后长度: {stringContent.Length}");
-                Console.WriteLine($"[写入文件] 写入Cube3DLut数据，转换后长度: {stringContent.Length}");
-                File.WriteAllText(path, stringContent, Encoding.UTF8);
-            }
-            else if (data is byte[] binaryData)
-            {
-                System.Diagnostics.Debug.WriteLine($"[写入文件] 写入二进制数据，长度: {binaryData.Length}");
-                Console.WriteLine($"[写入文件] 写入二进制数据，长度: {binaryData.Length}");
-                File.WriteAllBytes(path, binaryData);
-            }
-            else
-            {
-                var stringContent = data.ToString();
-                System.Diagnostics.Debug.WriteLine($"[写入文件] 写入对象ToString数据，长度: {stringContent.Length}");
-                Console.WriteLine($"[写入文件] 写入对象ToString数据，长度: {stringContent.Length}");
-                File.WriteAllText(path, stringContent, Encoding.UTF8);
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
             }
 
             // 验证文件是否成功创建
