@@ -62,7 +62,7 @@ public class LUTApplicationScript : TunnelExtensionScriptBase
         try
         {
             // 确保输入是RGBA格式
-            Mat workingImage = EnsureRGBAFormat(imageMat);
+            using var workingImage = EnsureRGBAFormat(imageMat);
             
             // 解析LUT数据
             Cube3DLut lut = ParseLUTData(lutObj);
@@ -90,42 +90,22 @@ public class LUTApplicationScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat EnsureRGBAFormat(Mat inputMat)
     {
-        if (inputMat.Channels() == 4 && inputMat.Type() == MatType.CV_32FC4)
+        double scale = inputMat.Depth() switch
         {
-            return inputMat.Clone();
-        }
-
-        Mat rgbaMat = new Mat();
-        
-        if (inputMat.Channels() == 3)
+            MatType.CV_8U => 1.0 / 255.0,
+            MatType.CV_16U => 1.0 / 65535.0,
+            MatType.CV_32F or MatType.CV_64F => 1.0,
+            _ => throw new NotSupportedException($"不支持的图像深度：{inputMat.Depth()}")
+        };
+        using var normalized = new Mat();
+        inputMat.ConvertTo(normalized, MatType.CV_32F, scale);
+        return normalized.Channels() switch
         {
-            Cv2.CvtColor(inputMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-        }
-        else if (inputMat.Channels() == 1)
-        {
-            Mat rgbMat = new Mat();
-            Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.GRAY2RGB);
-            Cv2.CvtColor(rgbMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-            rgbMat.Dispose();
-        }
-        else if (inputMat.Channels() == 4)
-        {
-            rgbaMat = inputMat.Clone();
-        }
-        else
-        {
-            throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
-        }
-
-        if (rgbaMat.Type() != MatType.CV_32FC4)
-        {
-            Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
-            rgbaMat.Dispose();
-            return floatMat;
-        }
-
-        return rgbaMat;
+            1 => normalized.CvtColor(ColorConversionCodes.GRAY2BGRA),
+            3 => normalized.CvtColor(ColorConversionCodes.BGR2BGRA),
+            4 => normalized.Clone(),
+            _ => throw new NotSupportedException($"不支持 {normalized.Channels()} 通道的图像")
+        };
     }
 
     /// <summary>
@@ -154,57 +134,68 @@ public class LUTApplicationScript : TunnelExtensionScriptBase
     private Cube3DLut ParseCubeFormat(string cubeData)
     {
         var lines = cubeData.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        int gridSize = 33; // 默认值
-        var lutValues = new List<Vec3f>();
-
+        int gridSize = 33; // 兼容原节点接受的无标题 33 点网格
+        var domainMin = new Vec3f(0, 0, 0);
+        var domainMax = new Vec3f(1, 1, 1);
+        var values = new List<Vec3f>();
         foreach (var line in lines)
         {
-            var trimmedLine = line.Trim();
-            
-            // 跳过注释和空行
-            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
-                continue;
-
-            // 解析LUT_3D_SIZE
-            if (trimmedLine.StartsWith("LUT_3D_SIZE"))
+            var content = line.Split('#', 2)[0].Trim();
+            if (content.Length == 0) continue;
+            var parts = content.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+            switch (parts[0])
             {
-                var parts = trimmedLine.Split(' ');
-                if (parts.Length >= 2 && int.TryParse(parts[1], out int size))
-                {
-                    gridSize = size;
-                }
-                continue;
-            }
-
-            // 跳过其他头部信息
-            if (trimmedLine.StartsWith("TITLE") || trimmedLine.StartsWith("DOMAIN_"))
-                continue;
-
-            // 解析LUT数据行
-            var values = trimmedLine.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            if (values.Length >= 3)
-            {
-                if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float r) &&
-                    float.TryParse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float g) &&
-                    float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float b))
-                {
-                    lutValues.Add(new Vec3f(r, g, b));
-                }
+                case "TITLE":
+                    break;
+                case "LUT_3D_SIZE":
+                    if (parts.Length != 2 || !int.TryParse(parts[1], out gridSize) || gridSize < 2)
+                        throw new FormatException("LUT_3D_SIZE 必须是大于 1 的整数");
+                    break;
+                case "LUT_3D_INPUT_RANGE":
+                    if (parts.Length != 3)
+                        throw new FormatException("LUT_3D_INPUT_RANGE 需要最小值和最大值");
+                    var min = ParseValue(parts[1]);
+                    var max = ParseValue(parts[2]);
+                    domainMin = new Vec3f(min, min, min);
+                    domainMax = new Vec3f(max, max, max);
+                    break;
+                case "DOMAIN_MIN":
+                    domainMin = ParseTriple(parts, 1);
+                    break;
+                case "DOMAIN_MAX":
+                    domainMax = ParseTriple(parts, 1);
+                    break;
+                default:
+                    // 部分导出器会附带额外的命名头字段，沿用原解析器的兼容行为。
+                    if (char.IsLetter(parts[0][0]) &&
+                        !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                        break;
+                    values.Add(ParseTriple(parts, 0));
+                    break;
             }
         }
+        if (checked((long)gridSize * gridSize * gridSize) != values.Count)
+            throw new FormatException($"LUT 网格与数据行数不符：{gridSize}，{values.Count} 行");
+        if (domainMax.Item0 <= domainMin.Item0 || domainMax.Item1 <= domainMin.Item1 ||
+            domainMax.Item2 <= domainMin.Item2)
+            throw new FormatException("每个通道的 DOMAIN_MAX 必须大于 DOMAIN_MIN");
 
-        // 验证LUT数据完整性
-        int expectedSize = gridSize * gridSize * gridSize;
-        if (lutValues.Count != expectedSize)
-        {
-            throw new ArgumentException($"LUT数据不完整，期望 {expectedSize} 个值，实际 {lutValues.Count} 个");
-        }
+        return new Cube3DLut { GridSize = gridSize, DomainMin = domainMin, DomainMax = domainMax, Data = values.ToArray() };
+    }
 
-        return new Cube3DLut
-        {
-            GridSize = gridSize,
-            Data = lutValues.ToArray()
-        };
+    private static Vec3f ParseTriple(string[] parts, int start)
+    {
+        if (parts.Length != start + 3)
+            throw new FormatException("LUT 数据行需要三个数值");
+        return new Vec3f(ParseValue(parts[start]), ParseValue(parts[start + 1]), ParseValue(parts[start + 2]));
+    }
+
+    private static float ParseValue(string text)
+    {
+        if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ||
+            !float.IsFinite(value))
+            throw new FormatException($"无效的 LUT 数值：{text}");
+        return value;
     }
 
     /// <summary>
@@ -244,13 +235,13 @@ public class LUTApplicationScript : TunnelExtensionScriptBase
         for (int x = 0; x < width; x++)
         {
             var pixel = inputImage.At<Vec4f>(y, x);
-            var inputColor = new Vec3f(pixel.Item0, pixel.Item1, pixel.Item2);
+            var inputColor = new Vec3f(pixel.Item2, pixel.Item1, pixel.Item0);
             
             // 应用LUT变换
             var transformedColor = InterpolateLUT(lut, inputColor);
             
             // 保持Alpha通道不变
-            var outputPixel = new Vec4f(transformedColor.Item0, transformedColor.Item1, transformedColor.Item2, pixel.Item3);
+            var outputPixel = new Vec4f(transformedColor.Item2, transformedColor.Item1, transformedColor.Item0, pixel.Item3);
             outputImage.Set(y, x, outputPixel);
         }
     }
@@ -261,9 +252,11 @@ public class LUTApplicationScript : TunnelExtensionScriptBase
     private Vec3f InterpolateLUT(Cube3DLut lut, Vec3f inputColor)
     {
         // 将输入颜色映射到LUT网格坐标
-        float r = Math.Max(0, Math.Min(1, inputColor.Item0)) * (lut.GridSize - 1);
-        float g = Math.Max(0, Math.Min(1, inputColor.Item1)) * (lut.GridSize - 1);
-        float b = Math.Max(0, Math.Min(1, inputColor.Item2)) * (lut.GridSize - 1);
+        float GridPosition(float value, float min, float max) =>
+            (float)(Math.Clamp(((double)value - min) / ((double)max - min), 0.0, 1.0) * (lut.GridSize - 1));
+        float r = GridPosition(inputColor.Item0, lut.DomainMin.Item0, lut.DomainMax.Item0);
+        float g = GridPosition(inputColor.Item1, lut.DomainMin.Item1, lut.DomainMax.Item1);
+        float b = GridPosition(inputColor.Item2, lut.DomainMin.Item2, lut.DomainMax.Item2);
 
         if (InterpolationMethod == "最近邻")
         {
@@ -532,5 +525,7 @@ public class LUTApplicationViewModel : ScriptViewModelBase
 public class Cube3DLut
 {
     public int GridSize { get; set; }
+    public Vec3f DomainMin { get; set; } = new Vec3f(0, 0, 0);
+    public Vec3f DomainMax { get; set; } = new Vec3f(1, 1, 1);
     public Vec3f[] Data { get; set; }
 }

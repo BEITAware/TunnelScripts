@@ -62,10 +62,12 @@ public class CTMGenerationScript : TunnelExtensionScriptBase
         try
         {
             // 确保输入是RGBA格式
-            Mat workingSamples1 = EnsureRGBAFormat(samples1Mat);
-            Mat workingSamples2 = EnsureRGBAFormat(samples2Mat);
+            using Mat workingSamples1 = EnsureRGBAFormat(samples1Mat);
+            using Mat workingSamples2 = EnsureRGBAFormat(samples2Mat);
             
             // 提取颜色数据
+            if (PolynomialDegree < 1 || PolynomialDegree > 5)
+                throw new ArgumentOutOfRangeException(nameof(PolynomialDegree), "多项式度数必须在 1 到 5 之间");
             var colors1 = ExtractColorData(workingSamples1);
             var colors2 = ExtractColorData(workingSamples2);
             
@@ -127,7 +129,8 @@ public class CTMGenerationScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -148,7 +151,7 @@ public class CTMGenerationScript : TunnelExtensionScriptBase
             {
                 var pixel = samplesImage.At<Vec4f>(y, x);
                 // 只使用RGB通道，忽略Alpha通道
-                colors.Add(new Vec3f(pixel.Item0, pixel.Item1, pixel.Item2));
+                colors.Add(new Vec3f(pixel.Item2, pixel.Item1, pixel.Item0));
             }
         }
         
@@ -257,12 +260,8 @@ public class CTMGenerationScript : TunnelExtensionScriptBase
     {
         var yVector = Vector<double>.Build.DenseOfArray(y);
         
-        // 使用正规方程求解: θ = (X^T * X)^(-1) * X^T * y
-        var XTranspose = X.Transpose();
-        var XTX = XTranspose * X;
-        var XTy = XTranspose * yVector;
-        
-        var coefficients = XTX.Solve(XTy);
+        // 伪逆也适用于重复色块或样本少于特征数的色卡。
+        var coefficients = X.PseudoInverse() * yVector;
         return coefficients.ToArray();
     }
 

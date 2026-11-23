@@ -79,6 +79,8 @@ public class CTMToLUTScript : TunnelExtensionScriptBase
     /// </summary>
     private string Generate3DLUTData(ColorTransferModel ctmModel, int gridSize)
     {
+        if (gridSize < 2 || gridSize > 256)
+            throw new ArgumentOutOfRangeException(nameof(gridSize), "网格大小必须在 2 到 256 之间");
         var lutBuilder = new StringBuilder();
 
         // 写入CUBE文件头
@@ -106,7 +108,7 @@ public class CTMToLUTScript : TunnelExtensionScriptBase
                     var outputColor = ctmModel.Transform(inputColor);
 
                     // 添加LUT条目
-                    lutBuilder.AppendLine($"{outputColor.Item0:F6} {outputColor.Item1:F6} {outputColor.Item2:F6}");
+                    lutBuilder.AppendLine(FormattableString.Invariant($"{outputColor.Item0:F6} {outputColor.Item1:F6} {outputColor.Item2:F6}"));
                 }
             }
         }

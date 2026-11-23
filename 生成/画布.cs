@@ -45,8 +45,8 @@ public class CanvasScript : TunnelExtensionScriptBase
         try
         {
             // 确保宽高至少为1像素
-            int canvasWidth = Math.Max(1, Width);
-            int canvasHeight = Math.Max(1, Height);
+            int canvasWidth = Math.Clamp(Width, 1, 8192);
+            int canvasHeight = Math.Clamp(Height, 1, 8192);
 
             // 创建一个空白且透明的RGBA图像
             // RGBA格式，R,G,B,A四个通道，值范围[0.0, 1.0]
@@ -198,7 +198,7 @@ public class CanvasViewModel : ScriptViewModelBase
         {
             if (CanvasScript.Width != value)
             {
-                CanvasScript.Width = Math.Max(1, value);
+                CanvasScript.Width = Math.Clamp(value, 1, 8192);
                 OnPropertyChanged();
                 NotifyParameterChanged(nameof(Width), CanvasScript.Width);
             }
@@ -212,7 +212,7 @@ public class CanvasViewModel : ScriptViewModelBase
         {
             if (CanvasScript.Height != value)
             {
-                CanvasScript.Height = Math.Max(1, value);
+                CanvasScript.Height = Math.Clamp(value, 1, 8192);
                 OnPropertyChanged();
                 NotifyParameterChanged(nameof(Height), CanvasScript.Height);
             }

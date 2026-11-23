@@ -9,11 +9,10 @@ using System.Windows.Media;
 using Tunnel_Next.Services.Scripting;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
-using Vortice.WIC;
 using System.Runtime.InteropServices;
 
 [TunnelExtensionScript(
-    Name = "基本处理",
+    Name = "基本处理+",
     Author = "BEITAware",
     Description = "基本图像处理：亮度、对比度、饱和度、色调、白平衡调整",
     Version = "1.0",
@@ -62,10 +61,6 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
     }
 
     // D3D11设备和上下文
-    private ID3D11Device _device;
-    private ID3D11DeviceContext _deviceContext;
-    private IWICImagingFactory _wicFactory;
-
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
         // 检查输入是否有效
@@ -94,34 +89,22 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
                              Math.Abs(pWBR - 1.0) > 0.001 || Math.Abs(pWBG - 1.0) > 0.001 ||
                              Math.Abs(pWBB - 1.0) > 0.001;
 
-        if (!needProcessing)
-        {
-            // 无需处理，直接返回原图的克隆
-            return new Dictionary<string, object> { ["F32texture"] = CloneTexture(inputTexture) };
-        }
-
         try
         {
-            // 初始化D3D11设备和WIC工厂
-            InitializeDeviceAndWIC();
-
-            // 获取纹理描述
             var desc = inputTexture.Description;
+            if (desc.Format != Format.R32G32B32A32_Float || desc.ArraySize != 1 ||
+                desc.MipLevels != 1 || desc.SampleDescription.Count != 1)
+                throw new ArgumentException("需要单层、单级、无多重采样的 RGBA32F 纹理。");
 
-            // 大图像优化: 检查图像大小，如果很大则启用分块处理
-            bool useTiling = desc.Width * desc.Height > 2048 * 2048;
-
-            ID3D11Texture2D resultTexture;
-            if (useTiling)
+            // Vortice caches both wrappers on their owner. Other nodes can share the same immediate context.
+            var device = inputTexture.Device;
+            var immediate = device.ImmediateContext;
+            lock (immediate)
             {
-                resultTexture = ProcessWithTiling(inputTexture, pBrightness, pContrast, pSaturation, pHue, pWBR, pWBG, pWBB);
+                var result = ProcessTexture(device, immediate, inputTexture, needProcessing,
+                    pBrightness, pContrast, pSaturation, pHue, pWBR, pWBG, pWBB);
+                return new Dictionary<string, object> { ["F32texture"] = result };
             }
-            else
-            {
-                resultTexture = ProcessDirectly(inputTexture, pBrightness, pContrast, pSaturation, pHue, pWBR, pWBG, pWBB);
-            }
-
-            return new Dictionary<string, object> { ["F32texture"] = resultTexture };
         }
         catch (Exception ex)
         {
@@ -143,40 +126,8 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
         }
     }
 
-    private void InitializeDeviceAndWIC()
-    {
-        if (_device == null)
-        {
-            // 创建D3D11设备
-            Vortice.Direct3D11.D3D11.D3D11CreateDevice(
-                null,
-                Vortice.Direct3D.DriverType.Hardware,
-                Vortice.Direct3D11.DeviceCreationFlags.None,
-                null,
-                out _device,
-                out _deviceContext);
-        }
-
-        if (_wicFactory == null)
-        {
-            // 创建WIC工厂
-            _wicFactory = new IWICImagingFactory2();
-        }
-    }
-
-    private ID3D11Texture2D CloneTexture(ID3D11Texture2D sourceTexture)
-    {
-        var desc = sourceTexture.Description;
-        var clonedTexture = _device.CreateTexture2D(desc);
-        _deviceContext.CopyResource(clonedTexture, sourceTexture);
-        return clonedTexture;
-    }
-
-    /// <summary>
-    /// 直接处理纹理
-    /// </summary>
-    private ID3D11Texture2D ProcessDirectly(
-        ID3D11Texture2D inputTexture,
+    private ID3D11Texture2D ProcessTexture(
+        ID3D11Device device, ID3D11DeviceContext context, ID3D11Texture2D inputTexture, bool adjust,
         double brightness,
         double contrast,
         double saturation,
@@ -187,37 +138,32 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
     {
         var desc = inputTexture.Description;
 
-        // 创建输出纹理
-        var outputTexture = _device.CreateTexture2D(desc);
+        if (!adjust)
+        {
+            var copy = device.CreateTexture2D(desc);
+            context.CopyResource(copy, inputTexture);
+            return copy;
+        }
 
-        // 创建可映射的临时纹理用于CPU访问
         var stagingDesc = desc;
         stagingDesc.Usage = ResourceUsage.Staging;
         stagingDesc.BindFlags = BindFlags.None;
+        stagingDesc.MiscFlags = ResourceOptionFlags.None;
         stagingDesc.CPUAccessFlags = CpuAccessFlags.Read | CpuAccessFlags.Write;
 
-        var stagingTexture = _device.CreateTexture2D(stagingDesc);
-
-        // 复制输入纹理到临时纹理
-        _deviceContext.CopyResource(stagingTexture, inputTexture);
-
-        // 映射纹理进行CPU处理
-        var mappedResource = _deviceContext.Map(stagingTexture, 0, MapMode.ReadWrite, Vortice.Direct3D11.MapFlags.None);
-
+        using var staging = device.CreateTexture2D(stagingDesc);
+        context.CopyResource(staging, inputTexture);
+        var mapped = context.Map(staging, 0, MapMode.ReadWrite, Vortice.Direct3D11.MapFlags.None);
         try
         {
-            ProcessPixelData(mappedResource, desc, brightness, contrast, saturation, hue, wbR, wbG, wbB);
+            ProcessPixelData(mapped, desc, brightness, contrast, saturation, hue, wbR, wbG, wbB);
         }
         finally
         {
-            _deviceContext.Unmap(stagingTexture, 0);
+            context.Unmap(staging, 0);
         }
-
-        // 复制处理后的数据到输出纹理
-        _deviceContext.CopyResource(outputTexture, stagingTexture);
-
-        stagingTexture.Dispose();
-
+        var outputTexture = device.CreateTexture2D(desc);
+        context.CopyResource(outputTexture, staging);
         return outputTexture;
     }
 
@@ -369,39 +315,6 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
             default: r = v; g = p; b = q; break;
         }
     }
-
-    /// <summary>
-    /// 分块处理大图像
-    /// </summary>
-    private ID3D11Texture2D ProcessWithTiling(
-        ID3D11Texture2D inputTexture,
-        double brightness,
-        double contrast,
-        double saturation,
-        double hue,
-        double wbR,
-        double wbG,
-        double wbB)
-    {
-        // 对于大纹理，我们简化处理，直接使用ProcessDirectly
-        // 在实际应用中，可以考虑使用Compute Shader进行GPU并行处理
-        return ProcessDirectly(inputTexture, brightness, contrast, saturation, hue, wbR, wbG, wbB);
-    }
-    /// <summary>
-    /// 清理资源
-    /// </summary>
-    public void Dispose()
-    {
-        _deviceContext?.Dispose();
-        _device?.Dispose();
-        _wicFactory?.Dispose();
-    }
-
-
-
-
-
-
 
     public override FrameworkElement CreateParameterControl()
     {

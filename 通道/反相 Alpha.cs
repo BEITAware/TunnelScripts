@@ -103,7 +103,8 @@ public class InvertWithAlphaScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -120,7 +121,7 @@ public class InvertWithAlphaScript : TunnelExtensionScriptBase
         
         // 对所有通道（包括Alpha）进行取反
         // 创建全1的矩阵
-        Mat onesMat = Mat.Ones(inputMat.Size(), inputMat.Type());
+        Mat onesMat = new Mat(inputMat.Size(), inputMat.Type(), Scalar.All(1.0));
         
         // 执行取反：result = 1.0 - input
         Cv2.Subtract(onesMat, inputMat, resultMat);

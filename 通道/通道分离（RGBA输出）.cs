@@ -120,7 +120,8 @@ public class ChannelSeparationRGBAScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -137,9 +138,9 @@ public class ChannelSeparationRGBAScript : TunnelExtensionScriptBase
         Mat[] channels = Cv2.Split(inputMat);
         
         // 为每个通道创建RGBA格式的输出图像
-        Mat channelR = CreateRGBAFromChannel(channels[0]);
+        Mat channelR = CreateRGBAFromChannel(channels[2]);
         Mat channelG = CreateRGBAFromChannel(channels[1]);
-        Mat channelB = CreateRGBAFromChannel(channels[2]);
+        Mat channelB = CreateRGBAFromChannel(channels[0]);
         Mat channelA = CreateRGBAFromChannel(channels[3]);
 
         // 清理原始通道

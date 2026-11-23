@@ -117,8 +117,8 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
         {
-            int w = Math.Max(1, Width);
-            int h = Math.Max(1, Height);
+            int w = Math.Clamp(Width, 1, 8192);
+            int h = Math.Clamp(Height, 1, 8192);
 
             // 构建 WPF Brush
             GradientBrush brush;
@@ -528,7 +528,7 @@ namespace TNX_Scripts.ScriptPrototypes
             {
                 if (Grad.Width != value)
                 {
-                    Grad.Width = Math.Max(1, value);
+                    Grad.Width = Math.Clamp(value, 1, 8192);
                     OnPropertyChanged();
                     NotifyParameterChanged(nameof(Width), value);
                 }
@@ -542,7 +542,7 @@ namespace TNX_Scripts.ScriptPrototypes
             {
                 if (Grad.Height != value)
                 {
-                    Grad.Height = Math.Max(1, value);
+                    Grad.Height = Math.Clamp(value, 1, 8192);
                     OnPropertyChanged();
                     NotifyParameterChanged(nameof(Height), value);
                 }
