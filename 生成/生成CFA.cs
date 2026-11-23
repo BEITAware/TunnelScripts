@@ -338,7 +338,7 @@ namespace TNX_Scripts.ScriptPrototypes
         {
             if (GenScript is TunnelExtensionScriptBase rsb)
             {
-                _ = rsb.OnParameterChangedAsync(paramName, oldVal, newVal);
+                rsb.OnParameterChanged(paramName, newVal);
             }
         }
 

@@ -11,7 +11,7 @@ using System.Windows;
 [TunnelExtensionScript(
     Name = "Alpha应用",
     Author = "BEITAware",
-    Description = "将第二输入作为Alpha通道应用到第一输入上，如果第二输入是多通道图像，则取RGB平均值或直接取R通道",
+    Description = "将第二输入作为Alpha通道应用到第一输入上，如果第二输入是多通道图像，则取RGB平均值",
     Version = "1.0",
     Category = "通道",
     Color = "#2ECC71"
@@ -65,45 +65,12 @@ public class AlphaApplyScript : TunnelExtensionScriptBase
                 throw new ArgumentException("输入图像尺寸不一致");
             }
 
-            // 生成单通道AlphaMat
-            Mat alphaSingle;
-            if (alphaMat.Channels() == 1)
-            {
-                alphaSingle = alphaMat.Clone();
-            }
-            else
-            {
-                // 提取RGB平均或R通道
-                Mat[] channels = new Mat[alphaMat.Channels()];
-                Cv2.Split(alphaMat, out channels);
-
-                // 计算RGB平均
-                Mat sum = new Mat();
-                Cv2.Add(channels[0], channels[1], sum);
-                Cv2.Add(sum, channels[2], sum);
-                Cv2.Multiply(sum, new Scalar(1.0/3.0), sum);
-                alphaSingle = sum;
-
-                // 释放多余通道
-                foreach (var c in channels) c.Dispose();
-            }
-
-            // 确保基础图像为RGBA
-            Mat baseRgba = (baseMat.Channels() == 4 && baseMat.Type() == MatType.CV_32FC4)
-                ? baseMat.Clone()
-                : ConvertToRGBA(baseMat);
-
-            // 分离并替换Alpha通道
-            Mat[] bgra = new Mat[4];
-            Cv2.Split(baseRgba, out bgra);
-            bgra[3].Dispose(); // 释放旧Alpha
-            bgra[3] = alphaSingle;
-            Mat result = new Mat(baseRgba.Size(), MatType.CV_32FC4);
-            Cv2.Merge(bgra, result);
-
-            // 释放临时资源
-            baseRgba.Dispose();
-            foreach (var c in bgra) c.Dispose();
+            using var mask = ConvertToRGBA(alphaMat);
+            using var transform = Mat.FromArray(new float[,] { { 1f / 3, 1f / 3, 1f / 3, 0 } });
+            using var alpha = new Mat();
+            Cv2.Transform(mask, alpha, transform);
+            var result = ConvertToRGBA(baseMat);
+            Cv2.InsertChannel(alpha, result, 3);
 
             return new Dictionary<string, object> { ["f32bmp"] = result };
         }
@@ -120,28 +87,19 @@ public class AlphaApplyScript : TunnelExtensionScriptBase
      */
     private Mat ConvertToRGBA(Mat mat)
     {
-        Mat rgba = new Mat();
-        if (mat.Channels() == 3)
+        using var normalized = new Mat();
+        double scale = mat.Depth() == MatType.CV_8U ? 1.0 / 255.0 :
+                       mat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0;
+        mat.ConvertTo(normalized, MatType.CV_32F, scale);
+        var bgra = new Mat();
+        switch (mat.Channels())
         {
-            Cv2.CvtColor(mat, rgba, ColorConversionCodes.BGR2RGBA);
+            case 1: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.GRAY2BGRA); break;
+            case 3: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.BGR2BGRA); break;
+            case 4: normalized.CopyTo(bgra); break;
+            default: throw new ArgumentException("需要单通道、BGR 或 BGRA 图像");
         }
-        else
-        {
-            // 其他情况：先转换为灰度，再到RGBA
-            Mat gray = new Mat();
-            Cv2.CvtColor(mat, gray, ColorConversionCodes.BGR2GRAY);
-            Cv2.CvtColor(gray, rgba, ColorConversionCodes.GRAY2RGBA);
-            gray.Dispose();
-        }
-        // 确保是32位浮点且4通道
-        if (rgba.Type() != MatType.CV_32FC4)
-        {
-            Mat temp = new Mat();
-            rgba.ConvertTo(temp, MatType.CV_32FC4);
-            rgba.Dispose();
-            rgba = temp;
-        }
-        return rgba;
+        return bgra;
     }
 
     /**

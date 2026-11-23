@@ -58,19 +58,19 @@ public class BlockScrambleEncryptorScriptRV : TunnelExtensionScriptBase
     {
         var outputs = new Dictionary<string, object>();
 
-        if (!inputs.TryGetValue("f32bmp", out var inputObj) || inputObj is not Mat src)
+        if (!inputs.TryGetValue("f32bmp", out var inputObj) || inputObj is not Mat src || src.Empty())
             return outputs;
 
         // 1) 根据块数量计算块尺寸，并裁切到可整除尺寸
-        int blockW = Math.Max(1, src.Width / BlocksX);
-        int blockH = Math.Max(1, src.Height / BlocksY);
+        int blocksX = Math.Clamp(BlocksX, 1, src.Width);
+        int blocksY = Math.Clamp(BlocksY, 1, src.Height);
+        int blockW = src.Width / blocksX;
+        int blockH = src.Height / blocksY;
 
-        int newW = blockW * BlocksX;
-        int newH = blockH * BlocksY;
-        var cropped = src.SubMat(0, newH, 0, newW).Clone(); // Clone 避免后续修改原图
+        int newW = blockW * blocksX;
+        int newH = blockH * blocksY;
+        var cropped = src.SubMat(0, newH, 0, newW);
 
-        int blocksX = BlocksX;
-        int blocksY = BlocksY;
         int totalBlocks = blocksX * blocksY;
 
         // 2) 生成可复现的块映射与通道打乱方案
@@ -99,7 +99,7 @@ public class BlockScrambleEncryptorScriptRV : TunnelExtensionScriptBase
                 int ty = (targetIdx / blocksX) * blockH;
 
                 // 取 ROI
-                var srcROI = cropped.SubMat(by * blockH, (by + 1) * blockH,
+                using var srcROI = cropped.SubMat(by * blockH, (by + 1) * blockH,
                                             bx * blockW, (bx + 1) * blockW);
 
                 // 通道打乱（置换索引按目标块确定，以便解密时能正确逆置换）
@@ -109,7 +109,7 @@ public class BlockScrambleEncryptorScriptRV : TunnelExtensionScriptBase
                 var processed = ApplyChannelPermutation(srcROI, permIdx, Encrypt);
 
                 // 写入目标位置
-                var dstROI = dst.SubMat(ty, ty + blockH, tx, tx + blockW);
+                using var dstROI = dst.SubMat(ty, ty + blockH, tx, tx + blockW);
                 processed.CopyTo(dstROI);
                 processed.Dispose();
             }
@@ -383,7 +383,11 @@ public class BlockScrambleEncryptorScriptRV : TunnelExtensionScriptBase
             set { if (_s.SmoothWidth != value) { var old = _s.SmoothWidth; _s.SmoothWidth = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(SmoothWidth), old, value); } }
         }
 
-        public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
+        public override Task OnParameterChangedAsync(string n, object o, object v)
+        {
+            _s.OnParameterChanged(n, v);
+            return Task.CompletedTask;
+        }
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
         public override Dictionary<string, object> GetParameterData()
         {

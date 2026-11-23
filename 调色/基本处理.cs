@@ -170,7 +170,8 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -327,25 +328,21 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
     private void ApplyHSVAdjustments(Mat rgbMat, double saturation, double hue)
     {
         Mat hsvMat = new Mat();
-        Cv2.CvtColor(rgbMat, hsvMat, ColorConversionCodes.RGB2HSV);
+        Cv2.CvtColor(rgbMat, hsvMat, ColorConversionCodes.BGR2HSV);
 
         Mat[] hsvChannels = Cv2.Split(hsvMat);
 
         // 色调调整
         if (Math.Abs(hue) > 0.001)
         {
-            double hueShift = hue / 360.0 * 180.0; // OpenCV HSV H范围是0-180
-            hsvChannels[0].ConvertTo(hsvChannels[0], -1, 1.0, hueShift);
-
-            // 处理色调环绕
-            Mat mask = new Mat();
-            Cv2.Threshold(hsvChannels[0], mask, 180, 1, ThresholdTypes.Binary);
-            hsvChannels[0] -= mask * 180;
-
-            Cv2.Threshold(hsvChannels[0], mask, 0, 1, ThresholdTypes.BinaryInv);
-            hsvChannels[0] += mask * 180;
-
-            mask.Dispose();
+            // 浮点 HSV 的色相单位是度，范围为 [0, 360)。
+            var h = hsvChannels[0];
+            h.ConvertTo(h, -1, 1.0, hue);
+            using var mask = new Mat();
+            Cv2.Compare(h, Scalar.All(360), mask, CmpType.GE);
+            Cv2.Subtract(h, Scalar.All(360), h, mask);
+            Cv2.Compare(h, Scalar.All(0), mask, CmpType.LT);
+            Cv2.Add(h, Scalar.All(360), h, mask);
         }
 
         // 饱和度调整
@@ -353,12 +350,12 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
         {
             double satFactor = 1.0 + saturation / 100.0;
             hsvChannels[1].ConvertTo(hsvChannels[1], -1, satFactor, 0);
-            Cv2.Threshold(hsvChannels[1], hsvChannels[1], 255, 255, ThresholdTypes.Trunc);
+            Cv2.Threshold(hsvChannels[1], hsvChannels[1], 1.0, 1.0, ThresholdTypes.Trunc);
         }
 
         // 重新合并并转换回RGB
         Cv2.Merge(hsvChannels, hsvMat);
-        Cv2.CvtColor(hsvMat, rgbMat, ColorConversionCodes.HSV2RGB);
+        Cv2.CvtColor(hsvMat, rgbMat, ColorConversionCodes.HSV2BGR);
 
         // 清理资源
         hsvMat.Dispose();
@@ -376,9 +373,9 @@ public class BasicProcessingScript : TunnelExtensionScriptBase
         {
             Mat[] channels = Cv2.Split(rgbMat);
 
-            channels[0].ConvertTo(channels[0], -1, wbR, 0);
+            channels[2].ConvertTo(channels[2], -1, wbR, 0);
             channels[1].ConvertTo(channels[1], -1, wbG, 0);
-            channels[2].ConvertTo(channels[2], -1, wbB, 0);
+            channels[0].ConvertTo(channels[0], -1, wbB, 0);
 
             // 确保值在有效范围内
             foreach (var ch in channels)

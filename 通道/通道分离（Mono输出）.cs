@@ -120,7 +120,8 @@ public class ChannelSeparationMonoScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -143,9 +144,9 @@ public class ChannelSeparationMonoScript : TunnelExtensionScriptBase
         Mat channelA = new Mat();
 
         // 转换为单通道32位浮点格式
-        channels[0].ConvertTo(channelR, MatType.CV_32F);
+        channels[2].ConvertTo(channelR, MatType.CV_32F);
         channels[1].ConvertTo(channelG, MatType.CV_32F);
-        channels[2].ConvertTo(channelB, MatType.CV_32F);
+        channels[0].ConvertTo(channelB, MatType.CV_32F);
         channels[3].ConvertTo(channelA, MatType.CV_32F);
 
         // 清理原始通道

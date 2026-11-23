@@ -65,14 +65,15 @@ public class ConvolutionKernelScript : TunnelExtensionScriptBase
         try
         {
             // 确保size为奇数
-            int kernelSize = Size;
+            int kernelSize = Math.Max(1, Size);
             if (kernelSize % 2 == 0)
             {
                 kernelSize += 1;
             }
 
-            // 创建卷积核
-            Mat kernel = CreateKernel(kernelSize);
+            // 单像素核无相邻采样点。
+            Mat kernel = kernelSize == 1 && KernelType != KernelPreset.custom
+                ? CreateMatFromArray(new float[,] { { 1f } }) : CreateKernel(kernelSize);
 
             if (kernel == null || kernel.Empty())
             {
@@ -164,57 +165,25 @@ public class ConvolutionKernelScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat ParseCustomKernel()
     {
-        try
-        {
-            var rows = CustomKernel.Trim().Split(';');
-            var kernelData = new List<List<float>>();
-            
-            foreach (var row in rows)
-            {
-                var rowData = new List<float>();
-                var values = row.Trim().Split(',');
-                foreach (var value in values)
-                {
-                    if (float.TryParse(value.Trim(), out float val))
-                    {
-                        rowData.Add(val);
-                    }
-                }
-                if (rowData.Count > 0)
-                {
-                    kernelData.Add(rowData);
-                }
-            }
+        var rows = CustomKernel.Trim().Split(';');
+        int columns = rows[0].Split(',').Length;
+        if (rows.Length % 2 == 0 || columns % 2 == 0 || rows.Length != columns)
+            return CreateDefaultKernel();
 
-            if (kernelData.Count > 0 && kernelData[0].Count > 0)
+        var weights = new float[rows.Length, columns];
+        for (int y = 0; y < rows.Length; y++)
+        {
+            var values = rows[y].Split(',');
+            if (values.Length != columns)
+                return CreateDefaultKernel();
+            for (int x = 0; x < columns; x++)
             {
-                int rows_count = kernelData.Count;
-                int cols_count = kernelData[0].Count;
-                
-                // 检查形状是否规则
-                if (rows_count != cols_count || rows_count % 2 == 0)
-                {
+                if (!float.TryParse(values[x], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out weights[y, x]) || !float.IsFinite(weights[y, x]))
                     return CreateDefaultKernel();
-                }
-                
-                var kernel2D = new float[rows_count, cols_count];
-                for (int i = 0; i < rows_count; i++)
-                {
-                    for (int j = 0; j < Math.Min(cols_count, kernelData[i].Count); j++)
-                    {
-                        kernel2D[i, j] = kernelData[i][j];
-                    }
-                }
-                
-                return CreateMatFromArray(kernel2D);
             }
         }
-        catch (Exception)
-        {
-            // 解析失败，使用默认核
-        }
-
-        return CreateDefaultKernel();
+        return CreateMatFromArray(weights);
     }
 
     /// <summary>
@@ -266,7 +235,7 @@ public class ConvolutionKernelScript : TunnelExtensionScriptBase
                     int dist = Math.Abs(i - center) + Math.Abs(j - center);
                     if (i == center && j == center)
                     {
-                        kernelData[i, j] = 1.0f + 4.0f * (size / 2);
+                        kernelData[i, j] = 1.0f + 2.0f * center * (center + 1);
                     }
                     else if (dist <= size / 2)
                     {
@@ -598,25 +567,13 @@ public class ConvolutionKernelScript : TunnelExtensionScriptBase
     /// </summary>
     private void ApplyIntensity(Mat kernel)
     {
-        if (Math.Abs(Intensity - 1.0) > 0.001)
+        if (Math.Abs(Intensity - 1.0) < 0.000001) return;
+        kernel.ConvertTo(kernel, -1, Intensity);
+        if (KernelType == KernelPreset.blur || KernelType == KernelPreset.gaussian_blur)
         {
-            // 对于某些滤波器（如模糊），应该保持核的和为1
-            if (KernelType == KernelPreset.blur || KernelType == KernelPreset.gaussian_blur)
-            {
-                // 重新归一化核以保持和为1
-                Scalar kernelSum = Cv2.Sum(kernel);
-                kernel.ConvertTo(kernel, -1, Intensity);
-                Scalar newSum = Cv2.Sum(kernel);
-                if (Math.Abs(newSum.Val0) > 0.001)
-                {
-                    kernel.ConvertTo(kernel, -1, kernelSum.Val0 / newSum.Val0);
-                }
-            }
-            else
-            {
-                // 对于其他滤波器，直接应用强度
-                kernel.ConvertTo(kernel, -1, Intensity);
-            }
+            // Blend the identity and blur kernels. The weight sum stays one for any strength.
+            int y = kernel.Rows / 2, x = kernel.Cols / 2;
+            kernel.Set(y, x, kernel.At<float>(y, x) + (float)(1 - Intensity));
         }
     }
 
@@ -679,7 +636,7 @@ public class ConvolutionKernelScript : TunnelExtensionScriptBase
             Height = 80
         };
         if(resources.Contains("DefaultTextBoxStyle")) customKernelTextBox.Style = resources["DefaultTextBoxStyle"] as Style;
-        customKernelTextBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding("CustomKernelString") { Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+        customKernelTextBox.SetBinding(TextBox.TextProperty, new System.Windows.Data.Binding(nameof(ConvolutionKernelViewModel.CustomKernel)) { Mode = System.Windows.Data.BindingMode.TwoWay, UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
         mainPanel.Children.Add(customKernelTextBox);
 
         return mainPanel;

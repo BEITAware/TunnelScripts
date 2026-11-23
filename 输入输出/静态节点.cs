@@ -80,187 +80,73 @@ public class StaticNodeScript : TunnelExtensionScriptBase
     /// </summary>
     private object LoadStaticNodeFile(string filePath)
     {
-        try
+        using var stream = File.OpenRead(filePath);
+        using var reader = new BinaryReader(stream);
+        var header = ReadField(reader);
+        if (Encoding.ASCII.GetString(header) == "TSN1")
         {
-            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-            using (var br = new BinaryReader(fs))
-            {
-                // 读取文件标识符和版本
-                int headerLength = br.ReadInt32();
-                byte[] headerBytes = br.ReadBytes(headerLength);
-                string header = Encoding.ASCII.GetString(headerBytes);
+            _originalNodeName = Encoding.UTF8.GetString(ReadField(reader));
+            _originalPortName = Encoding.UTF8.GetString(ReadField(reader));
+            _originalDataType = Encoding.UTF8.GetString(ReadField(reader));
+            return LoadTSN1Format(reader);
+        }
 
-                if (header == "TSN1") // 新版本格式
-                {
-                    return LoadTSN1Format(br);
-                }
-                else
-                {
-                    // 回到文件开始处，尝试以旧格式加载
-                    fs.Seek(0, SeekOrigin.Begin);
-                    return LoadLegacyFormat(fs);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"加载静态节点文件失败: {ex.Message}");
-            throw;
-        }
+        var metadata = Encoding.UTF8.GetString(header).Split('\n');
+        if (metadata.Length < 3)
+            throw new InvalidDataException("无法解析静态节点元数据");
+        _originalNodeName = metadata[0];
+        _originalPortName = metadata[1];
+        _originalDataType = metadata[2];
+        return ReadMat(reader, hasChannelCount: false);
     }
 
-    /// <summary>
-    /// 加载TSN1格式的文件
-    /// </summary>
-    private object LoadTSN1Format(BinaryReader br)
+    internal static byte[] ReadField(BinaryReader reader)
     {
-        // 读取元数据
-        int nodeNameLength = br.ReadInt32();
-        byte[] nodeNameBytes = br.ReadBytes(nodeNameLength);
-        _originalNodeName = Encoding.UTF8.GetString(nodeNameBytes);
-
-        int portNameLength = br.ReadInt32();
-        byte[] portNameBytes = br.ReadBytes(portNameLength);
-        _originalPortName = Encoding.UTF8.GetString(portNameBytes);
-
-        int dataTypeLength = br.ReadInt32();
-        byte[] dataTypeBytes = br.ReadBytes(dataTypeLength);
-        _originalDataType = Encoding.UTF8.GetString(dataTypeBytes);
-
-        // 读取数据类型标识
-        string dataTypeTag = br.ReadString();
-
-        // 根据数据类型读取数据
-        switch (dataTypeTag)
-        {
-            case "MAT":
-                int type = br.ReadInt32();
-                int rows = br.ReadInt32();
-                int cols = br.ReadInt32();
-                int channels = br.ReadInt32();
-                int dataLength = br.ReadInt32();
-                
-                // 读取Mat数据
-                byte[] matData = br.ReadBytes(dataLength);
-                
-                // 创建SerializableMat
-                var serMat = new SerializableMat
-                {
-                    Type = type,
-                    Rows = rows,
-                    Cols = cols,
-                    Channels = channels,
-                    Data = matData
-                };
-                
-                // 转换为Mat
-                return serMat.ToMat();
-                
-            case "BYTES":
-                int bytesLength = br.ReadInt32();
-                return br.ReadBytes(bytesLength);
-                
-            case "DOUBLE":
-                return br.ReadDouble();
-                
-            case "FLOAT":
-                return br.ReadSingle();
-                
-            case "INT":
-                return br.ReadInt32();
-                
-            case "BOOL":
-                return br.ReadBoolean();
-                
-            case "STRING":
-                int stringLength = br.ReadInt32();
-                byte[] stringBytes = br.ReadBytes(stringLength);
-                return Encoding.UTF8.GetString(stringBytes);
-                
-            case "UNKNOWN":
-            default:
-                int unknownLength = br.ReadInt32();
-                byte[] unknownBytes = br.ReadBytes(unknownLength);
-                return Encoding.UTF8.GetString(unknownBytes);
-        }
+        int length = reader.ReadInt32();
+        if (length < 0 || length > reader.BaseStream.Length - reader.BaseStream.Position)
+            throw new InvalidDataException("静态节点字段长度与文件不符");
+        var data = reader.ReadBytes(length);
+        if (data.Length != length)
+            throw new EndOfStreamException();
+        return data;
     }
 
-    /// <summary>
-    /// 加载旧版格式的文件（向后兼容）
-    /// </summary>
-    private object LoadLegacyFormat(FileStream fs)
+    private static object LoadTSN1Format(BinaryReader reader)
     {
-        // 读取元数据长度（4字节）
-        byte[] lengthBytes = new byte[4];
-        fs.Read(lengthBytes, 0, 4);
-        int metadataLength = BitConverter.ToInt32(lengthBytes, 0);
-
-        // 读取元数据
-        byte[] metadataBytes = new byte[metadataLength];
-        fs.Read(metadataBytes, 0, metadataLength);
-        string metadata = Encoding.UTF8.GetString(metadataBytes);
-
-        // 解析元数据 (格式：节点名称\n端口名称\n数据类型)
-        string[] parts = metadata.Split('\n');
-        if (parts.Length >= 3)
+        return reader.ReadString() switch
         {
-            _originalNodeName = parts[0];
-            _originalPortName = parts[1];
-            _originalDataType = parts[2];
-        }
+            "MAT" => ReadMat(reader, hasChannelCount: true),
+            "BYTES" => ReadField(reader),
+            "DOUBLE" => reader.ReadDouble(),
+            "FLOAT" => reader.ReadSingle(),
+            "INT" => reader.ReadInt32(),
+            "BOOL" => reader.ReadBoolean(),
+            "STRING" or "UNKNOWN" => Encoding.UTF8.GetString(ReadField(reader)),
+            var tag => throw new InvalidDataException($"未知静态节点类型：{tag}")
+        };
+    }
 
-        // 以下原始代码逻辑处理Mat格式，先尝试解析
-        try
-        {
-            // 读取前12字节，检查是否为Mat头部
-            byte[] headerBytes = new byte[12];
-            fs.Read(headerBytes, 0, headerBytes.Length);
-            
-            int type = BitConverter.ToInt32(headerBytes, 0);
-            int rows = BitConverter.ToInt32(headerBytes, 4);
-            int cols = BitConverter.ToInt32(headerBytes, 8);
-            
-            // 是否看起来像合理的Mat尺寸？
-            if (rows > 0 && rows < 32768 && cols > 0 && cols < 32768)
-            {
-                // 读取数据长度
-                byte[] dataLengthBytes = new byte[4];
-                fs.Read(dataLengthBytes, 0, dataLengthBytes.Length);
-                int dataLength = BitConverter.ToInt32(dataLengthBytes, 0);
-                
-                if (dataLength > 0 && dataLength < 1024*1024*500) // 限制最大500MB
-                {
-                    // 创建Mat
-                    Mat mat = new Mat(rows, cols, (MatType)type);
-                    
-                    // 读取Mat数据
-                    byte[] matData = new byte[dataLength];
-                    int totalBytesRead = 0;
-                    int bytesRead;
-                    
-                    // 分块读取，处理大文件
-                    while (totalBytesRead < dataLength && 
-                           (bytesRead = fs.Read(matData, totalBytesRead, dataLength - totalBytesRead)) > 0)
-                    {
-                        totalBytesRead += bytesRead;
-                    }
-                    
-                    if (totalBytesRead == dataLength)
-                    {
-                        // 复制数据到Mat
-                        System.Runtime.InteropServices.Marshal.Copy(matData, 0, mat.Data, dataLength);
-                        return mat;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"尝试解析旧格式Mat失败: {ex.Message}，将返回错误指示");
-        }
-        
-        // 如果解析失败，返回一个错误指示
-        return new Mat(1, 1, MatType.CV_32FC4, new Scalar(1, 0, 0, 1)); // 红色的1x1 Mat
+    private static Mat ReadMat(BinaryReader reader, bool hasChannelCount)
+    {
+        int type = reader.ReadInt32();
+        int rows = reader.ReadInt32();
+        int cols = reader.ReadInt32();
+        var matType = (MatType)type;
+        int channels = hasChannelCount ? reader.ReadInt32() : matType.Channels;
+        if (type < 0 || type > 4095 || channels != matType.Channels || rows <= 0 || cols <= 0)
+            throw new InvalidDataException("静态节点图像的类型或尺寸无效");
+
+        // 使用一个像素查询该 OpenCV 类型的实际字节数，再校验整个图像。
+        using var sample = new Mat(1, 1, matType);
+        long byteCount = checked((long)rows * cols * sample.ElemSize());
+        var length = reader.ReadInt32();
+        if (length != byteCount || length > reader.BaseStream.Length - reader.BaseStream.Position)
+            throw new InvalidDataException("静态节点图像长度与尺寸不符");
+        var bytes = reader.ReadBytes(length);
+        if (bytes.Length != length)
+            throw new EndOfStreamException();
+        using var pixels = Mat.FromPixelData(rows, cols, matType, bytes);
+        return pixels.Clone();
     }
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)
@@ -546,49 +432,6 @@ public class StaticNodeScript : TunnelExtensionScriptBase
     }
 }
 
-/// <summary>
-/// 可序列化的Mat封装类（这里的定义必须与StaticNodeService中的完全相同）
-/// </summary>
-[Serializable]
-public class SerializableMat
-{
-    public int Type { get; set; }
-    public int Rows { get; set; }
-    public int Cols { get; set; }
-    public int Channels { get; set; }
-    public byte[] Data { get; set; }
-
-    public SerializableMat()
-    {
-        Data = Array.Empty<byte>();
-    }
-
-    /// <summary>
-    /// 转换回OpenCV的Mat
-    /// </summary>
-    public Mat ToMat()
-    {
-        try
-        {
-            // 创建Mat
-            Mat mat = new Mat(Rows, Cols, (MatType)Type);
-            
-            // 复制数据
-            System.Runtime.InteropServices.Marshal.Copy(Data, 0, mat.Data, Data.Length);
-            
-            return mat;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"转换为Mat失败: {ex.Message}");
-            
-            // 返回一个红色的1x1 Mat作为错误指示
-            Mat errorMat = new Mat(1, 1, MatType.CV_32FC4, new Scalar(1, 0, 0, 1));
-            return errorMat;
-        }
-    }
-}
-
 public class StaticNodeViewModel : ScriptViewModelBase
 {
     private StaticNodeScript StaticNodeScript => (StaticNodeScript)Script;
@@ -688,42 +531,19 @@ public class StaticNodeViewModel : ScriptViewModelBase
                 try
                 {
                     // 尝试读取文件标识符
-                    int headerLength = br.ReadInt32();
-                    byte[] headerBytes = br.ReadBytes(headerLength);
-                    string header = Encoding.ASCII.GetString(headerBytes);
-
-                    if (header == "TSN1")
+                    var header = global::StaticNodeScript.ReadField(br);
+                    if (Encoding.ASCII.GetString(header) == "TSN1")
                     {
-                        // 新版本格式
-                        int nodeNameLength = br.ReadInt32();
-                        byte[] nodeNameBytes = br.ReadBytes(nodeNameLength);
-                        string nodeName = Encoding.UTF8.GetString(nodeNameBytes);
-
-                        int portNameLength = br.ReadInt32();
-                        byte[] portNameBytes = br.ReadBytes(portNameLength);
-                        string portName = Encoding.UTF8.GetString(portNameBytes);
-
-                        int dataTypeLength = br.ReadInt32();
-                        byte[] dataTypeBytes = br.ReadBytes(dataTypeLength);
-                        string dataType = Encoding.UTF8.GetString(dataTypeBytes);
-
+                        string nodeName = Encoding.UTF8.GetString(global::StaticNodeScript.ReadField(br));
+                        string portName = Encoding.UTF8.GetString(global::StaticNodeScript.ReadField(br));
+                        string dataType = Encoding.UTF8.GetString(global::StaticNodeScript.ReadField(br));
                         info += $"原始节点: {nodeName}\n";
                         info += $"原始端口: {portName}\n";
                         info += $"数据类型: {dataType}";
                     }
                     else
                     {
-                        // 旧版本格式
-                        fs.Seek(0, SeekOrigin.Begin);
-                        
-                        byte[] lengthBytes = new byte[4];
-                        fs.Read(lengthBytes, 0, 4);
-                        int metadataLength = BitConverter.ToInt32(lengthBytes, 0);
-
-                        byte[] metadataBytes = new byte[metadataLength];
-                        fs.Read(metadataBytes, 0, metadataLength);
-                        string metadata = Encoding.UTF8.GetString(metadataBytes);
-
+                        string metadata = Encoding.UTF8.GetString(header);
                         string[] parts = metadata.Split('\n');
                         if (parts.Length >= 3)
                         {

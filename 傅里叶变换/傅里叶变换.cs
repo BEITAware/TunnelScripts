@@ -29,7 +29,7 @@ public class FourierTransformScript : TunnelExtensionScriptBase
     [ScriptParameter(DisplayName = "存储元数据", Description = "在幅度谱中存储原始图像信息", Order = 2)]
     public bool StoreMetadata { get; set; } = true;
 
-    [ScriptParameter(DisplayName = "应用汉宁窗", Description = "应用汉宁窗函数减少频谱泄漏", Order = 3)]
+    [ScriptParameter(DisplayName = "应用汉宁窗", Description = "应用汉宁窗减少频谱泄漏；权重为零的边缘像素无法还原", Order = 3)]
     public bool ApplyWindow { get; set; } = false;
 
     [ScriptParameter(DisplayName = "增强预览效果", Description = "增强幅度谱的预览效果", Order = 4)]
@@ -60,416 +60,136 @@ public class FourierTransformScript : TunnelExtensionScriptBase
         };
     }
 
+    private int _rows, _cols;
+
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
-        // 检查输入是否有效
-        if (!inputs.TryGetValue("f32bmp", out var inputObj) || inputObj == null)
-        {
-            return new Dictionary<string, object>
-            {
-                ["f32bmp_magnitude"] = null,
-                ["f32bmp_phase"] = null
-            };
-        }
-
-        if (!(inputObj is Mat inputMat) || inputMat.Empty())
-        {
-            return new Dictionary<string, object>
-            {
-                ["f32bmp_magnitude"] = null,
-                ["f32bmp_phase"] = null
-            };
-        }
-
+        if (!inputs.TryGetValue("f32bmp", out var value) || !(value is Mat input) || input.Empty())
+            return new Dictionary<string, object> { ["f32bmp_magnitude"] = null, ["f32bmp_phase"] = null };
+        using var rgba = EnsureRGBAFormat(input);
+        _rows = rgba.Rows;
+        _cols = rgba.Cols;
+        // Without reconstruction metadata, transform at the exact input dimensions.
+        int rows = StoreMetadata ? Cv2.GetOptimalDFTSize(_rows) : _rows;
+        int cols = StoreMetadata ? Cv2.GetOptimalDFTSize(_cols) : _cols;
+        var channels = Cv2.Split(rgba);
+        var magnitudes = new Mat[4];
+        var phases = new Mat[4];
+        var magnitudeOutput = new Mat();
+        var phaseOutput = new Mat();
         try
         {
-            // 确保输入是RGBA格式
-            Mat workingMat = EnsureRGBAFormat(inputMat);
-
-            // 分离RGBA通道
-            Mat[] channels = Cv2.Split(workingMat);
-
-            // 分别对RGB通道进行傅里叶变换
-            Mat[] magnitudeChannels = new Mat[4];
-            Mat[] phaseChannels = new Mat[4];
-
-            // 处理RGB通道
-            for (int i = 0; i < 3; i++)
+            for (int c = 0; c < 4; c++)
             {
-                var (magnitude, phase) = PerformFFT(channels[i]);
-                magnitudeChannels[i] = magnitude;
-                phaseChannels[i] = phase;
+                magnitudes[c] = new Mat(rows, cols, MatType.CV_32F);
+                phases[c] = new Mat(rows, cols, MatType.CV_32F);
+                if (c == 3 && !TransformAlpha)
+                {
+                    Cv2.CopyMakeBorder(channels[c], magnitudes[c], 0, rows - _rows, 0, cols - _cols, BorderTypes.Constant, Scalar.All(0));
+                    magnitudes[c].CopyTo(phases[c]);
+                }
+                else
+                {
+                    Transform(channels[c], magnitudes[c], phases[c]);
+                }
             }
-
-            // 处理Alpha通道
-            if (TransformAlpha)
-            {
-                var (magnitude, phase) = PerformFFT(channels[3]);
-                magnitudeChannels[3] = magnitude;
-                phaseChannels[3] = phase;
-            }
-            else
-            {
-                // Alpha通道设为1.0（不变换）
-                // 对于幅度谱和相位谱的Alpha通道都设为1.0，确保图像可见
-                magnitudeChannels[3] = Mat.Ones(magnitudeChannels[0].Size(), MatType.CV_32F);
-                phaseChannels[3] = Mat.Ones(phaseChannels[0].Size(), MatType.CV_32F);
-            }
-
-            // 合并通道创建输出图像
-            Mat magnitudeResult = new Mat();
-            Mat phaseResult = new Mat();
-            Cv2.Merge(magnitudeChannels, magnitudeResult);
-            Cv2.Merge(phaseChannels, phaseResult);
-
-            // 清理资源
-            foreach (var ch in channels) ch.Dispose();
-            foreach (var ch in magnitudeChannels) ch.Dispose();
-            foreach (var ch in phaseChannels) ch.Dispose();
-            workingMat.Dispose();
-
-            return new Dictionary<string, object>
-            {
-                ["f32bmp_magnitude"] = magnitudeResult,
-                ["f32bmp_phase"] = phaseResult
-            };
+            Cv2.Merge(magnitudes, magnitudeOutput);
+            Cv2.Merge(phases, phaseOutput);
+            return new Dictionary<string, object> { ["f32bmp_magnitude"] = magnitudeOutput, ["f32bmp_phase"] = phaseOutput };
         }
-        catch (Exception ex)
+        catch
         {
-            throw new ApplicationException($"傅里叶变换节点处理失败: {ex.Message}", ex);
+            magnitudeOutput.Dispose();
+            phaseOutput.Dispose();
+            throw;
+        }
+        finally
+        {
+            foreach (var m in channels) m.Dispose();
+            foreach (var m in magnitudes) m?.Dispose();
+            foreach (var m in phases) m?.Dispose();
         }
     }
 
-    /// <summary>
-    /// 确保图像是RGBA格式
-    /// </summary>
-    private Mat EnsureRGBAFormat(Mat inputMat)
+    private void Transform(Mat channel, Mat magnitude, Mat phase)
     {
-        if (inputMat.Channels() == 4 && inputMat.Type() == MatType.CV_32FC4)
-        {
-            return inputMat.Clone();
-        }
-
-        Mat rgbaMat = new Mat();
-        
-        if (inputMat.Channels() == 3)
-        {
-            // RGB -> RGBA
-            Cv2.CvtColor(inputMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-        }
-        else if (inputMat.Channels() == 1)
-        {
-            // 灰度 -> RGB -> RGBA
-            Mat rgbMat = new Mat();
-            Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.GRAY2RGB);
-            Cv2.CvtColor(rgbMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-            rgbMat.Dispose();
-        }
-        else if (inputMat.Channels() == 4)
-        {
-            rgbaMat = inputMat.Clone();
-        }
-        else
-        {
-            throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
-        }
-
-        // 确保是32位浮点格式
-        if (rgbaMat.Type() != MatType.CV_32FC4)
-        {
-            Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
-            rgbaMat.Dispose();
-            return floatMat;
-        }
-
-        return rgbaMat;
-    }
-
-    // 存储重建所需的数值信息
-    private Dictionary<string, object> _reconstructionData = new Dictionary<string, object>();
-
-    /// <summary>
-    /// 执行傅里叶变换（单通道）
-    /// </summary>
-    private (Mat magnitude, Mat phase) PerformFFT(Mat channelMat)
-    {
-        // 确保图像尺寸适合FFT（加速计算）
-        int rows = channelMat.Rows;
-        int cols = channelMat.Cols;
-        int optimalRows = Cv2.GetOptimalDFTSize(rows);
-        int optimalCols = Cv2.GetOptimalDFTSize(cols);
-
-        // 确保是32位浮点格式
-        Mat floatMat = new Mat();
-        if (channelMat.Type() != MatType.CV_32F)
-        {
-            channelMat.ConvertTo(floatMat, MatType.CV_32F);
-        }
-        else
-        {
-            floatMat = channelMat.Clone();
-        }
-
-        // 应用窗函数减少频谱泄漏（如果启用）- 在原始尺寸上应用
         if (ApplyWindow)
         {
-            Mat window = new Mat();
-            Cv2.CreateHanningWindow(window, new Size(floatMat.Cols, floatMat.Rows), MatType.CV_32F);
-            Cv2.Multiply(floatMat, window, floatMat);
-            window.Dispose();
+            channel.GetArray(out float[] pixels);
+            var wx = WindowAxis(channel.Cols);
+            var wy = WindowAxis(channel.Rows);
+            for (int y = 0; y < channel.Rows; y++)
+                for (int x = 0; x < channel.Cols; x++)
+                    pixels[y * channel.Cols + x] *= (float)(wx[x] * wy[y]);
+            channel.SetArray(pixels);
         }
-
-        // 填充图像到最佳尺寸（在窗函数应用后）
-        Mat paddedMat = new Mat();
-        Cv2.CopyMakeBorder(floatMat, paddedMat, 0, optimalRows - rows, 0, optimalCols - cols,
-                          BorderTypes.Constant, Scalar.All(0));
-
-        // 创建复数格式的输入（修复关键问题：DFT需要复数输入）
-        Mat[] complex = { paddedMat, Mat.Zeros(paddedMat.Size(), MatType.CV_32F) };
-        Mat complexMat = new Mat();
-        Cv2.Merge(complex, complexMat);
-
-        // 执行傅里叶变换
-        Mat dft = new Mat();
-        Cv2.Dft(complexMat, dft, DftFlags.ComplexOutput);
-
-        // 移动零频率到中心（如果需要）
-        if (CenterFFT)
-        {
-            ShiftDFT(dft);
-        }
-
-        // 分离实部和虚部
-        Mat[] dftChannels = Cv2.Split(dft);
-        Mat realPart = dftChannels[0];
-        Mat imagPart = dftChannels[1];
-
-        // 计算幅度谱和相位谱
-        Mat magnitudeSpectrum = new Mat();
-        Mat phaseSpectrum = new Mat();
-
-        Cv2.Magnitude(realPart, imagPart, magnitudeSpectrum);
-        Cv2.Phase(realPart, imagPart, phaseSpectrum);
-
-        // 保存原始幅度谱的最大值用于重建
-        double minVal, maxVal;
-        Cv2.MinMaxLoc(magnitudeSpectrum, out minVal, out maxVal);
-
-        // 创建两个版本：原始版本用于重建，显示版本用于预览
-        Mat originalMagnitude = magnitudeSpectrum.Clone();  // 保持原始数据用于重建
-        Mat displayMagnitude = magnitudeSpectrum.Clone();   // 用于显示处理
-
-        // 保存对数变换后的最大值（用于重建）
-        double logMaxVal = maxVal; // 默认使用原始最大值
-
-        // 对显示用的幅度谱应用对数变换以增强可视化效果（如果需要）
-        if (ApplyLogTransform)
-        {
-            Cv2.Add(displayMagnitude, Scalar.All(1), displayMagnitude);
-            Cv2.Log(displayMagnitude, displayMagnitude);
-
-            // 记录对数变换后的实际最大值
-            double logMinVal;
-            Cv2.MinMaxLoc(displayMagnitude, out logMinVal, out logMaxVal);
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 对数变换后的最大值: {logMaxVal}");
-        }
-        else
-        {
-            // 如果没有对数变换，logMaxVal就是原始最大值
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 未应用对数变换，使用原始最大值: {logMaxVal}");
-        }
-
-        // 应用增强预览效果（如果启用）
-        if (EnhancePreview)
-        {
-            // 应用伽马校正增强对比度
-            Mat enhanced = new Mat();
-            Cv2.Pow(displayMagnitude, 0.7, enhanced); // 伽马值0.7增强暗部细节
-            displayMagnitude.Dispose();
-            displayMagnitude = enhanced;
-        }
-
-        // 根据是否需要增强预览来决定是否归一化显示版本
-        Mat outputMagnitude;
-        if (EnhancePreview)
-        {
-            // 归一化显示用的幅度谱到0-1范围（仅用于预览）
-            Cv2.Normalize(displayMagnitude, displayMagnitude, 0, 1, NormTypes.MinMax);
-            outputMagnitude = displayMagnitude;
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 输出增强预览版本（已归一化）");
-        }
-        else
-        {
-            // 输出原始幅度谱用于重建
-            outputMagnitude = originalMagnitude;
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 输出原始版本（未归一化，用于重建）");
-        }
-
-        // 相位谱从-π到π映射到0-1范围（保持高精度）
-        Mat normalizedPhase = new Mat();
-        Cv2.Add(phaseSpectrum, Scalar.All(Math.PI), normalizedPhase);
-        Cv2.Multiply(normalizedPhase, Scalar.All(1.0 / (2 * Math.PI)), normalizedPhase);
-
-        // 增强相位谱对比度（如果启用）- 使用更温和的方法保持精度
-        if (EnhancePhaseContrast)
-        {
-            // 使用CLAHE（对比度限制自适应直方图均衡化）代替普通直方图均衡化
-            Mat enhancedPhase = new Mat();
-            normalizedPhase.ConvertTo(enhancedPhase, MatType.CV_8U, 255.0);
-
-            var clahe = Cv2.CreateCLAHE(2.0, new Size(8, 8)); // 限制对比度为2.0
-            clahe.Apply(enhancedPhase, enhancedPhase);
-
-            enhancedPhase.ConvertTo(normalizedPhase, MatType.CV_32F, 1.0 / 255.0);
-            enhancedPhase.Dispose();
-            clahe.Dispose();
-        }
-
-        // 确保相位谱的值在有效范围内
-        Cv2.Threshold(normalizedPhase, normalizedPhase, 1.0, 1.0, ThresholdTypes.Trunc);
-        Cv2.Threshold(normalizedPhase, normalizedPhase, 0.0, 0.0, ThresholdTypes.Tozero);
-
-        // 裁剪回原始尺寸（如果需要）
-        if (rows != outputMagnitude.Rows || cols != outputMagnitude.Cols)
-        {
-            Mat croppedMagnitude = new Mat(outputMagnitude, new Rect(0, 0, cols, rows));
-            Mat croppedPhase = new Mat(normalizedPhase, new Rect(0, 0, cols, rows));
-
-            Mat finalMagnitude = croppedMagnitude.Clone();
-            Mat finalPhase = croppedPhase.Clone();
-
-            outputMagnitude.Dispose();
-            normalizedPhase.Dispose();
-
-            outputMagnitude = finalMagnitude;
-            normalizedPhase = finalPhase;
-        }
-
-        // 存储重建所需的元数据（如果启用）
-        if (StoreMetadata)
-        {
-            // 将重建信息存储到实例变量中，稍后在InjectMetadata中使用
-            _reconstructionData["OriginalMaxValue"] = maxVal;
-            _reconstructionData["LogMaxValue"] = logMaxVal;
-            _reconstructionData["ApplyLogTransform"] = ApplyLogTransform;
-            _reconstructionData["CenterFFT"] = CenterFFT;
-            _reconstructionData["ApplyWindow"] = ApplyWindow;
-            _reconstructionData["OriginalRows"] = rows;
-            _reconstructionData["OriginalCols"] = cols;
-            _reconstructionData["OptimalRows"] = optimalRows;
-            _reconstructionData["OptimalCols"] = optimalCols;
-            _reconstructionData["EnhancePhaseContrast"] = EnhancePhaseContrast;
-            _reconstructionData["TransformAlpha"] = TransformAlpha;
-
-            // 这些信息将通过InjectMetadata系统传递给下游节点
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 存储重建元数据: 原始最大值={maxVal}, 对数最大值={logMaxVal}");
-        }
-
-        // 清理资源
-        paddedMat.Dispose();
-        floatMat.Dispose();
-        dft.Dispose();
-        realPart.Dispose();
-        imagPart.Dispose();
-        phaseSpectrum.Dispose();
-        magnitudeSpectrum.Dispose();  // 清理原始幅度谱
-        complex[0].Dispose();
-        complex[1].Dispose();
-        complexMat.Dispose();
-
-        // 清理未使用的版本
-        if (EnhancePreview)
-        {
-            originalMagnitude.Dispose();  // 如果输出的是显示版本，清理原始版本
-        }
-        else
-        {
-            displayMagnitude.Dispose();   // 如果输出的是原始版本，清理显示版本
-        }
-
-        return (outputMagnitude, normalizedPhase);
+        int rows = magnitude.Rows, cols = magnitude.Cols;
+        using var padded = new Mat();
+        Cv2.CopyMakeBorder(channel, padded, 0, rows - channel.Rows, 0, cols - channel.Cols, BorderTypes.Constant, Scalar.All(0));
+        using var spectrum = new Mat();
+        Cv2.Dft(padded, spectrum, DftFlags.ComplexOutput);
+        spectrum.GetArray(out Vec2f[] coefficients);
+        var amplitudes = new float[coefficients.Length];
+        var angles = new float[coefficients.Length];
+        double scale = ApplyLogTransform ? Math.Log(1.0 + coefficients.Length) : coefficients.Length;
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < cols; x++)
+            {
+                var z = coefficients[y * cols + x];
+                double re = z.Item0, im = z.Item1;
+                double m = Math.Sqrt(re * re + im * im);
+                m = (ApplyLogTransform ? Math.Log(1.0 + m) : m) / scale;
+                double a = Math.Atan2(im, re) / (2 * Math.PI);
+                if (a < 0) a += 1;
+                int index = CenterFFT ? ((y + rows / 2) % rows) * cols + (x + cols / 2) % cols : y * cols + x;
+                amplitudes[index] = (float)(EnhancePreview ? Math.Sqrt(m) : m);
+                angles[index] = (float)(EnhancePhaseContrast ? Math.Sqrt(a) : a);
+            }
+        magnitude.SetArray(amplitudes);
+        phase.SetArray(angles);
     }
 
-    /// <summary>
-    /// 注入元数据到下游
-    /// </summary>
+    private static Mat EnsureRGBAFormat(Mat input)
+    {
+        using var values = new Mat();
+        double scale = input.Depth() == MatType.CV_8U ? 1.0 / 255 :
+                       input.Depth() == MatType.CV_16U ? 1.0 / 65535 : 1.0;
+        input.ConvertTo(values, MatType.CV_32F, scale);
+        if (values.Channels() == 4) return values.Clone();
+        if (values.Channels() != 1 && values.Channels() != 3)
+            throw new ArgumentException("输入图像需要 1、3 或 4 个通道。");
+        var rgba = new Mat();
+        Cv2.CvtColor(values, rgba, values.Channels() == 1 ? ColorConversionCodes.GRAY2RGBA : ColorConversionCodes.RGB2RGBA);
+        return rgba;
+    }
+
+    private static double[] WindowAxis(int length)
+    {
+        var weights = new double[length];
+        for (int i = 0; i < length; i++)
+            weights[i] = length <= 2 ? 1 : Math.Sin(Math.PI * i / (length - 1));
+        return weights;
+    }
+
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)
     {
-        // 调用基类方法
-        var metadata = base.InjectMetadata(currentMetadata);
-
-        // 注入傅里叶变换相关的元数据
-        if (!metadata.ContainsKey("傅里叶变换参数"))
+        var metadata = new Dictionary<string, object>(base.InjectMetadata(currentMetadata));
+        // Port encoding flags travel with the spectra. Optional provenance enables padded transforms.
+        metadata["傅里叶变换参数"] = new Dictionary<string, object>
         {
-            metadata["傅里叶变换参数"] = new Dictionary<string, object>
-            {
-                ["ApplyLogTransform"] = ApplyLogTransform,
-                ["CenterFFT"] = CenterFFT,
-                ["StoreMetadata"] = StoreMetadata,
-                ["ApplyWindow"] = ApplyWindow,
-                ["EnhancePreview"] = EnhancePreview,
-                ["TransformAlpha"] = TransformAlpha,
-                ["EnhancePhaseContrast"] = EnhancePhaseContrast
-            };
-        }
-
-        // 注入重建信息（如果启用存储元数据）
-        if (StoreMetadata && !metadata.ContainsKey("傅里叶重建信息"))
+            ["EncodingVersion"] = 2, ["ApplyLogTransform"] = ApplyLogTransform, ["CenterFFT"] = CenterFFT,
+            ["ApplyWindow"] = ApplyWindow, ["TransformAlpha"] = TransformAlpha,
+            ["EnhancePreview"] = EnhancePreview, ["EnhancePhaseContrast"] = EnhancePhaseContrast
+        };
+        metadata.Remove("傅里叶重建参数");
+        metadata.Remove("傅里叶重建信息");
+        if (StoreMetadata)
         {
-            metadata["傅里叶重建信息"] = new Dictionary<string, object>
-            {
-                ["NodeInstanceId"] = NodeInstanceId,
-                ["TransformTimestamp"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"),
-                ["Version"] = "1.0"
-            };
+            metadata["傅里叶重建参数"] = new Dictionary<string, object> { ["OriginalRows"] = _rows, ["OriginalCols"] = _cols };
+            metadata["傅里叶重建信息"] = new Dictionary<string, object> { ["NodeInstanceId"] = NodeInstanceId, ["Version"] = "2" };
         }
-
-        // 注入详细的重建参数（如果启用存储元数据且有重建数据）
-        if (StoreMetadata && _reconstructionData.Count > 0 && !metadata.ContainsKey("傅里叶重建参数"))
-        {
-            // 注入完整的重建数据
-            metadata["傅里叶重建参数"] = new Dictionary<string, object>(_reconstructionData);
-
-            System.Diagnostics.Debug.WriteLine($"[傅里叶变换] 注入重建参数到元数据，包含 {_reconstructionData.Count} 个参数");
-        }
-
-        if (!metadata.ContainsKey("处理历史"))
-        {
-            metadata["处理历史"] = "傅里叶变换";
-        }
-        else
-        {
-            metadata["处理历史"] = metadata["处理历史"] + " → 傅里叶变换";
-        }
-
+        metadata["处理历史"] = metadata.TryGetValue("处理历史", out var history) ? history + " → 傅里叶变换" : "傅里叶变换";
         return metadata;
-    }
-
-    /// <summary>
-    /// 移动DFT结果使零频率居中（修复奇数尺寸处理）
-    /// </summary>
-    private void ShiftDFT(Mat dft)
-    {
-        int cx = dft.Cols / 2;
-        int cy = dft.Rows / 2;
-
-        Mat q0 = new Mat(dft, new Rect(0, 0, cx, cy));
-        Mat q1 = new Mat(dft, new Rect(cx, 0, cx, cy));
-        Mat q2 = new Mat(dft, new Rect(0, cy, cx, cy));
-        Mat q3 = new Mat(dft, new Rect(cx, cy, cx, cy));
-
-        Mat tmp = new Mat();
-
-        q0.CopyTo(tmp);
-        q3.CopyTo(q0);
-        tmp.CopyTo(q3);
-
-        q1.CopyTo(tmp);
-        q2.CopyTo(q1);
-        tmp.CopyTo(q2);
-
-        tmp.Dispose();
     }
 
     public override FrameworkElement CreateParameterControl()

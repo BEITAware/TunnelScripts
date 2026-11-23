@@ -96,7 +96,7 @@ public class ConvolutionScript : TunnelExtensionScriptBase
                 }
 
                 // 检查外部核的有效性
-                if (kernel.Rows % 2 == 0 || kernel.Cols % 2 == 0)
+                if (kernel.Channels() != 1 || kernel.Rows % 2 == 0 || kernel.Cols % 2 == 0)
                 {
                     System.Diagnostics.Debug.WriteLine("外部卷积核大小必须为奇数，使用内置核");
                     kernel.Dispose();
@@ -137,18 +137,10 @@ public class ConvolutionScript : TunnelExtensionScriptBase
                 return new Dictionary<string, object> { ["f32bmp"] = workingMat };
             }
 
-            // 对内置核应用强度因子和归一化
+            if (Normalize)
+                NormalizeKernel(kernel);
             if (!useExternalKernel)
-            {
-                // 应用强度因子
                 ApplyIntensityToKernel(kernel);
-
-                // 如果选择了归一化，对卷积核进行归一化处理
-                if (Normalize)
-                {
-                    NormalizeKernel(kernel);
-                }
-            }
 
             // 选择边界类型
             BorderTypes cvBorderType = GetBorderType();
@@ -278,57 +270,25 @@ public class ConvolutionScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat ParseCustomKernel()
     {
-        try
+        var rows = CustomKernel.Trim().Split(';');
+        int columns = rows[0].Split(',').Length;
+        if (rows.Length % 2 == 0 || columns % 2 == 0)
+            return CreateMatFromArray(new float[,] { { 0, 0, 0 }, { 0, 1, 0 }, { 0, 0, 0 } });
+
+        var weights = new float[rows.Length, columns];
+        for (int y = 0; y < rows.Length; y++)
         {
-            var rows = CustomKernel.Trim().Split(';');
-            var kernelData = new List<List<float>>();
-            
-            foreach (var row in rows)
+            var values = rows[y].Split(',');
+            if (values.Length != columns)
+                return CreateMatFromArray(new float[,] { { 0, 0, 0 }, { 0, 1, 0 }, { 0, 0, 0 } });
+            for (int x = 0; x < columns; x++)
             {
-                var rowData = new List<float>();
-                var values = row.Trim().Split(',');
-                foreach (var value in values)
-                {
-                    if (float.TryParse(value.Trim(), out float val))
-                    {
-                        rowData.Add(val);
-                    }
-                }
-                if (rowData.Count > 0)
-                {
-                    kernelData.Add(rowData);
-                }
-            }
-
-            if (kernelData.Count > 0 && kernelData[0].Count > 0)
-            {
-                int rows_count = kernelData.Count;
-                int cols_count = kernelData[0].Count;
-                
-                var kernel2D = new float[rows_count, cols_count];
-                for (int i = 0; i < rows_count; i++)
-                {
-                    for (int j = 0; j < Math.Min(cols_count, kernelData[i].Count); j++)
-                    {
-                        kernel2D[i, j] = kernelData[i][j];
-                    }
-                }
-
-                return CreateMatFromArray(kernel2D);
+                if (!float.TryParse(values[x], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out weights[y, x]) || !float.IsFinite(weights[y, x]))
+                    return CreateMatFromArray(new float[,] { { 0, 0, 0 }, { 0, 1, 0 }, { 0, 0, 0 } });
             }
         }
-        catch (Exception)
-        {
-            // 解析失败，使用默认核
-        }
-
-        // 解析失败时返回默认单位核
-        return CreateMatFromArray(new float[,]
-        {
-            { 0, 0, 0 },
-            { 0, 1, 0 },
-            { 0, 0, 0 }
-        });
+        return CreateMatFromArray(weights);
     }
 
     /// <summary>
@@ -358,25 +318,13 @@ public class ConvolutionScript : TunnelExtensionScriptBase
     /// </summary>
     private void ApplyIntensityToKernel(Mat kernel)
     {
-        if (Math.Abs(Intensity - 1.0) > 0.001)
+        if (Math.Abs(Intensity - 1.0) < 0.000001) return;
+        kernel.ConvertTo(kernel, -1, Intensity);
+        if (KernelType == "blur" || KernelType == "gaussian_blur" || (Normalize && Math.Abs(Cv2.Sum(kernel).Val0 - Intensity) < 0.00001))
         {
-            // 对于某些滤波器（如模糊），应该保持核的和为1
-            if (KernelType == "blur" || KernelType == "gaussian_blur")
-            {
-                // 重新归一化核以保持和为1
-                Scalar kernelSum = Cv2.Sum(kernel);
-                kernel.ConvertTo(kernel, -1, Intensity);
-                Scalar newSum = Cv2.Sum(kernel);
-                if (newSum.Val0 != 0)
-                {
-                    kernel.ConvertTo(kernel, -1, kernelSum.Val0 / newSum.Val0);
-                }
-            }
-            else
-            {
-                // 对于其他滤波器，直接应用强度
-                kernel.ConvertTo(kernel, -1, Intensity);
-            }
+            // Blend the identity and blur kernels. The weight sum stays one for any strength.
+            int y = kernel.Rows / 2, x = kernel.Cols / 2;
+            kernel.Set(y, x, kernel.At<float>(y, x) + (float)(1 - Intensity));
         }
     }
 
@@ -404,6 +352,7 @@ public class ConvolutionScript : TunnelExtensionScriptBase
             "reflect" => BorderTypes.Reflect,
             "reflect_101" => BorderTypes.Reflect101,
             "isolated" => BorderTypes.Isolated,
+            "wrap" => BorderTypes.Wrap,
             _ => BorderTypes.Reflect101
         };
     }
@@ -413,87 +362,29 @@ public class ConvolutionScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat ApplyConvolution(Mat inputMat, Mat kernel, BorderTypes borderType)
     {
-        Mat resultMat = new Mat();
-
-        System.Diagnostics.Debug.WriteLine($"开始卷积处理，输入类型: {inputMat.Type()}, 通道数: {inputMat.Channels()}, 大小: {inputMat.Rows}x{inputMat.Cols}");
-        System.Diagnostics.Debug.WriteLine($"卷积核类型: {kernel.Type()}, 大小: {kernel.Rows}x{kernel.Cols}");
-
-        try
+        using var filtered = new Mat();
+        if (borderType == BorderTypes.Wrap)
         {
-            // 确保卷积核是正确的类型
-            Mat workingKernel = kernel;
-            if (kernel.Type() != MatType.CV_32F)
-            {
-                workingKernel = new Mat();
-                kernel.ConvertTo(workingKernel, MatType.CV_32F);
-                System.Diagnostics.Debug.WriteLine($"卷积核类型转换为: {workingKernel.Type()}");
-            }
-
-            // 检查输入图像是否为多通道（特别是RGBA）
-            if (inputMat.Channels() == 4) // RGBA
-            {
-                System.Diagnostics.Debug.WriteLine("处理RGBA图像，分离Alpha通道");
-
-                // 分离通道
-                Mat[] channels = Cv2.Split(inputMat);
-                Mat[] resultChannels = new Mat[4];
-
-                // 对RGB通道应用卷积，保持Alpha通道不变
-                for (int i = 0; i < 3; i++) // 只处理RGB通道
-                {
-                    resultChannels[i] = new Mat();
-                    Cv2.Filter2D(channels[i], resultChannels[i], -1, workingKernel,
-                        new OpenCvSharp.Point(-1, -1), Bias, borderType);
-                }
-
-                // Alpha通道保持不变
-                resultChannels[3] = channels[3].Clone();
-
-                // 合并通道
-                Cv2.Merge(resultChannels, resultMat);
-
-                // 清理资源
-                foreach (var ch in channels) ch.Dispose();
-                foreach (var ch in resultChannels) ch.Dispose();
-            }
-            else if (inputMat.Channels() == 3) // RGB
-            {
-                System.Diagnostics.Debug.WriteLine("处理RGB图像");
-                Cv2.Filter2D(inputMat, resultMat, -1, workingKernel,
-                    new OpenCvSharp.Point(-1, -1), Bias, borderType);
-            }
-            else // 单通道
-            {
-                System.Diagnostics.Debug.WriteLine("处理单通道图像");
-                Cv2.Filter2D(inputMat, resultMat, -1, workingKernel,
-                    new OpenCvSharp.Point(-1, -1), Bias, borderType);
-            }
-
-            System.Diagnostics.Debug.WriteLine($"卷积完成，输出类型: {resultMat.Type()}, 通道数: {resultMat.Channels()}, 大小: {resultMat.Rows}x{resultMat.Cols}");
-
-            // 检查结果是否为空
-            if (resultMat.Empty())
-            {
-                System.Diagnostics.Debug.WriteLine("警告：卷积结果为空，返回原图");
-                resultMat = inputMat.Clone();
-            }
-
-            // 清理临时核
-            if (workingKernel != kernel)
-            {
-                workingKernel.Dispose();
-            }
+            // Filter2D does not accept BORDER_WRAP. Extend first, then retain the original region.
+            int x = kernel.Cols / 2, y = kernel.Rows / 2;
+            using var padded = new Mat();
+            using var paddedResult = new Mat();
+            Cv2.CopyMakeBorder(inputMat, padded, y, y, x, x, BorderTypes.Wrap);
+            Cv2.Filter2D(padded, paddedResult, -1, kernel, new OpenCvSharp.Point(-1, -1), Bias, BorderTypes.Constant);
+            using var originalRegion = new Mat(paddedResult, new OpenCvSharp.Rect(x, y, inputMat.Cols, inputMat.Rows));
+            originalRegion.CopyTo(filtered);
         }
-        catch (Exception ex)
+        else
         {
-            System.Diagnostics.Debug.WriteLine($"卷积处理异常: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"异常堆栈: {ex.StackTrace}");
-            // 如果出错，返回原图
-            resultMat.Dispose();
-            resultMat = inputMat.Clone();
+            Cv2.Filter2D(inputMat, filtered, -1, kernel, new OpenCvSharp.Point(-1, -1), Bias, borderType);
         }
-
-        return resultMat;
+        if (inputMat.Channels() == 4)
+        {
+            using var alpha = new Mat();
+            Cv2.ExtractChannel(inputMat, alpha, 3);
+            Cv2.InsertChannel(alpha, filtered, 3);
+        }
+        return filtered.Clone();
     }
 
     public override FrameworkElement CreateParameterControl()

@@ -55,27 +55,23 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
         {
-            int w = Math.Max(1, Width);
-            int h = Math.Max(1, Height);
-
-            var mat = new Mat(h, w, MatType.CV_32FC3);
-
-            switch (Type)
+            int width = Math.Clamp(Width, 1, 4096);
+            int height = Math.Clamp(Height, 1, 4096);
+            using var colors = new Mat(height, width, MatType.CV_32FC3);
+            if (Type == NoiseType.Gaussian)
             {
-                case NoiseType.Uniform:
-                    Cv2.Randu(mat, 0.0, 1.0);
-                    break;
-                case NoiseType.Gaussian:
-                    Cv2.Randn(mat, Mean, StdDev);
-                    Cv2.Min(mat, 1.0, mat);
-                    Cv2.Max(mat, 0.0, mat);
-                    break;
+                Cv2.Randn(colors, Scalar.All(Math.Clamp(Mean, 0, 1)), Scalar.All(Math.Clamp(StdDev, 0, 1)));
+                Cv2.Min(colors, 1, colors);
+                Cv2.Max(colors, 0, colors);
+            }
+            else
+            {
+                Cv2.Randu(colors, Scalar.All(0), Scalar.All(1));
             }
 
-            return new Dictionary<string, object>
-            {
-                ["Output"] = mat
-            };
+            var output = new Mat();
+            Cv2.CvtColor(colors, output, ColorConversionCodes.BGR2BGRA);
+            return new Dictionary<string, object> { ["Output"] = output };
         }
 
         public override FrameworkElement CreateParameterControl()
@@ -195,16 +191,37 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override void DeserializeParameters(Dictionary<string, object> data)
         {
-            if (data.TryGetValue(nameof(Type), out var t) && t is NoiseType nt)
-                Type = nt;
-            if (data.TryGetValue(nameof(Width), out var w) && w is int wi)
-                Width = wi;
-            if (data.TryGetValue(nameof(Height), out var h) && h is int hi)
-                Height = hi;
-            if (data.TryGetValue(nameof(Mean), out var m) && m is double md)
-                Mean = md;
-            if (data.TryGetValue(nameof(StdDev), out var sd) && sd is double sdd)
-                StdDev = sdd;
+            Type = ReadType(data, Type);
+            Width = ReadDimension(data, nameof(Width), Width);
+            Height = ReadDimension(data, nameof(Height), Height);
+            Mean = ReadUnit(data, nameof(Mean), Mean);
+            StdDev = ReadUnit(data, nameof(StdDev), StdDev);
+        }
+
+        internal static NoiseType ReadType(Dictionary<string, object> data, NoiseType fallback)
+        {
+            return data.TryGetValue(nameof(Type), out var raw) &&
+                   Enum.TryParse<NoiseType>(raw?.ToString(), true, out var parsed) && Enum.IsDefined(parsed)
+                ? parsed : fallback;
+        }
+
+        internal static int ReadDimension(Dictionary<string, object> data, string key, int fallback)
+        {
+            return data.TryGetValue(key, out var raw) && int.TryParse(raw?.ToString(), out var value)
+                ? Math.Clamp(value, 1, 4096) : fallback;
+        }
+
+        internal static double ReadUnit(Dictionary<string, object> data, string key, double fallback)
+        {
+            if (!data.TryGetValue(key, out var raw)) return fallback;
+            double value;
+            if (raw is System.Text.Json.JsonElement element && element.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                if (!element.TryGetDouble(out value)) return fallback;
+            }
+            else if (!double.TryParse(raw?.ToString(), out value))
+                return fallback;
+            return double.IsFinite(value) ? Math.Clamp(value, 0, 1) : fallback;
         }
     }
 
@@ -253,9 +270,9 @@ namespace TNX_Scripts.ScriptPrototypes
                 if (GenScript.Width != value)
                 {
                     var old = GenScript.Width;
-                    GenScript.Width = Math.Max(1, value);
+                    GenScript.Width = Math.Clamp(value, 1, 4096);
                     OnPropertyChanged();
-                    NotifyParameterChanged(nameof(Width), value);
+                    NotifyParameterChanged(nameof(Width), GenScript.Width);
                 }
             }
         }
@@ -268,9 +285,9 @@ namespace TNX_Scripts.ScriptPrototypes
                 if (GenScript.Height != value)
                 {
                     var old = GenScript.Height;
-                    GenScript.Height = Math.Max(1, value);
+                    GenScript.Height = Math.Clamp(value, 1, 4096);
                     OnPropertyChanged();
-                    NotifyParameterChanged(nameof(Height), value);
+                    NotifyParameterChanged(nameof(Height), GenScript.Height);
                 }
             }
         }
@@ -350,11 +367,11 @@ namespace TNX_Scripts.ScriptPrototypes
         {
             await RunOnUIThreadAsync(() =>
             {
-                if (data.TryGetValue(nameof(Type), out var t) && t is WhiteNoiseGeneratorScript.NoiseType nt) Type = nt;
-                if (data.TryGetValue(nameof(Width), out var w) && w is int wi) Width = wi;
-                if (data.TryGetValue(nameof(Height), out var h) && h is int hi) Height = hi;
-                if (data.TryGetValue(nameof(Mean), out var m) && m is double md) Mean = md;
-                if (data.TryGetValue(nameof(StdDev), out var sd) && sd is double sdd) StdDev = sdd;
+                Type = WhiteNoiseGeneratorScript.ReadType(data, Type);
+                Width = WhiteNoiseGeneratorScript.ReadDimension(data, nameof(Width), Width);
+                Height = WhiteNoiseGeneratorScript.ReadDimension(data, nameof(Height), Height);
+                Mean = WhiteNoiseGeneratorScript.ReadUnit(data, nameof(Mean), Mean);
+                StdDev = WhiteNoiseGeneratorScript.ReadUnit(data, nameof(StdDev), StdDev);
             });
         }
 

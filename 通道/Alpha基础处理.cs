@@ -72,12 +72,9 @@ public class AlphaChannelScript : TunnelExtensionScriptBase
     /// </summary>
     private Mat ProcessAlphaChannel(Mat inputMat)
     {
-        var outputMat = inputMat.Clone();
-        
-
         // 分离通道
         var channels = new Mat[4];
-        Cv2.Split(outputMat, out channels);
+        Cv2.Split(inputMat, out channels);
 
         var alphaChannel = channels[3]; // Alpha通道
 
@@ -85,7 +82,7 @@ public class AlphaChannelScript : TunnelExtensionScriptBase
         {
             case "调整透明度":
                 // 将Alpha通道乘以指定值
-                alphaChannel *= AlphaValue;
+                alphaChannel.ConvertTo(alphaChannel, -1, AlphaValue);
                 break;
 
             case "设置透明度":
@@ -106,10 +103,7 @@ public class AlphaChannelScript : TunnelExtensionScriptBase
         // 如果需要反转Alpha通道
         if (InvertAlpha)
         {
-            var invertedAlpha = new Mat();
-            Cv2.BitwiseNot(alphaChannel, invertedAlpha);
-            alphaChannel.Dispose();
-            channels[3] = invertedAlpha;
+            alphaChannel.ConvertTo(alphaChannel, -1, -1.0, 1.0);
         }
 
         // 合并通道
@@ -138,7 +132,7 @@ public class AlphaChannelScript : TunnelExtensionScriptBase
         {
             for (int x = 0; x < width; x++)
             {
-                float gradientValue = (float)x / width * (float)AlphaValue;
+                float gradientValue = (width == 1 ? 1f : (float)x / (width - 1)) * (float)AlphaValue;
                 alphaChannel.Set(y, x, gradientValue);
             }
         }

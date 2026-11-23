@@ -70,15 +70,17 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
         try
         {
             dbg("处理开始。");
-            int blockW = Math.Max(1, src.Width / BlocksX);
-            int blockH = Math.Max(1, src.Height / BlocksY);
+            int blocksX = Math.Clamp(BlocksX, 1, src.Width);
+            int blocksY = Math.Clamp(BlocksY, 1, src.Height);
+            int blockW = src.Width / blocksX;
+            int blockH = src.Height / blocksY;
             dbg($"块尺寸: {blockW}x{blockH}");
 
-            int newW = blockW * BlocksX;
-            int newH = blockH * BlocksY;
-            cropped = src.SubMat(0, newH, 0, newW).Clone();
+            int newW = blockW * blocksX;
+            int newH = blockH * blocksY;
+            cropped = src.SubMat(0, newH, 0, newW);
 
-            int totalBlocks = BlocksX * BlocksY;
+            int totalBlocks = blocksX * blocksY;
             var rnd = new Random(Seed);
             int[] forwardMap = Enumerable.Range(0, totalBlocks).OrderBy(_ => rnd.Next()).ToArray();
             int[] inverseMap = new int[totalBlocks];
@@ -91,15 +93,15 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
             {
                 dbg("进入加密模式。");
                 var result = new Mat(newH, newW, src.Type());
-                for (int y = 0; y < BlocksY; y++)
+                for (int y = 0; y < blocksY; y++)
                 {
-                    for (int x = 0; x < BlocksX; x++)
+                    for (int x = 0; x < blocksX; x++)
                     {
-                        int srcIdx = y * BlocksX + x;
+                        int srcIdx = y * blocksX + x;
                         int dstIdx = forwardMap[srcIdx];
 
-                        var srcRoi = cropped.SubMat(y * blockH, (y + 1) * blockH, x * blockW, (x + 1) * blockW);
-                        var dstRoi = result.SubMat((dstIdx / BlocksX) * blockH, ((dstIdx / BlocksX) + 1) * blockH, (dstIdx % BlocksX) * blockW, ((dstIdx % BlocksX) + 1) * blockW);
+                        using var srcRoi = cropped.SubMat(y * blockH, (y + 1) * blockH, x * blockW, (x + 1) * blockW);
+                        using var dstRoi = result.SubMat((dstIdx / blocksX) * blockH, ((dstIdx / blocksX) + 1) * blockH, (dstIdx % blocksX) * blockW, ((dstIdx % blocksX) + 1) * blockW);
                         
                         int permKey = channelPermIndices[dstIdx];
                         var processed = ApplyChannelPermutation(srcRoi, permKey, true);
@@ -110,12 +112,12 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
                 }
                 dbg("加密完成。");
                 outputs["f32bmp"] = result;
-                outputs["f32bmp_shifted"] = ShiftWrap(result.Clone(), -blockW / 2, blockH / 2);
+                outputs["f32bmp_shifted"] = ShiftWrap(result, -blockW / 2, blockH / 2);
             }
             else // Decrypt
             {
                 dbg("进入解密模式。");
-                Mat baseDecoded = DecodeImage(cropped, inverseMap, channelPermIndices, BlocksX, BlocksY, blockW, blockH);
+                Mat baseDecoded = DecodeImage(cropped, inverseMap, channelPermIndices, blocksX, blocksY, blockW, blockH);
                 dbg("主输入解密完成。");
 
                 inputs.TryGetValue("f32bmp_shifted_in", out var shiftedInObj);
@@ -127,14 +129,14 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
                     Mat alignedEnc = ShiftWrap(shiftedEnc, shiftX, -shiftY);
                     Mat alignedCrop = alignedEnc.SubMat(0, newH, 0, newW);
 
-                    Mat secondDecoded = DecodeImage(alignedCrop, inverseMap, channelPermIndices, BlocksX, BlocksY, blockW, blockH);
+                    Mat secondDecoded = DecodeImage(alignedCrop, inverseMap, channelPermIndices, blocksX, blocksY, blockW, blockH);
                     dbg("第二输入解密完成，开始融合。");
                     
                     Mat fused = BlendWithBoundary(baseDecoded, secondDecoded, blockW, blockH, MaskOffsetX, MaskOffsetY);
                     dbg("融合完成。");
                     
                     outputs["f32bmp"] = fused;
-                    outputs["f32bmp_shifted"] = ShiftWrap(fused.Clone(), -shiftX, shiftY);
+                    outputs["f32bmp_shifted"] = ShiftWrap(fused, -shiftX, shiftY);
 
                     alignedEnc.Dispose();
                     alignedCrop.Dispose();
@@ -145,14 +147,15 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
                 {
                     dbg("未提供第二输入，跳过融合。");
                     outputs["f32bmp"] = baseDecoded;
-                    outputs["f32bmp_shifted"] = ShiftWrap(baseDecoded.Clone(), -blockW / 2, blockH / 2);
+                    outputs["f32bmp_shifted"] = ShiftWrap(baseDecoded, -blockW / 2, blockH / 2);
                 }
             }
             dbg("处理流程结束。");
         }
         catch (Exception ex)
         {
-            dbg($"!!! 异常: {ex}");
+            foreach (var output in outputs.Values.OfType<Mat>()) output.Dispose();
+            throw new ApplicationException($"图像分块处理失败: {ex.Message}", ex);
         }
         finally
         {
@@ -171,8 +174,8 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
                 int scrambledIdx = y * blocksX + x;
                 int originalIdx = inverseMap[scrambledIdx];
 
-                var srcRoi = scrambledImg.SubMat(y * blockH, (y + 1) * blockH, x * blockW, (x + 1) * blockW);
-                var dstRoi = decoded.SubMat((originalIdx / blocksX) * blockH, ((originalIdx / blocksX) + 1) * blockH, (originalIdx % blocksX) * blockW, ((originalIdx % blocksX) + 1) * blockW);
+                using var srcRoi = scrambledImg.SubMat(y * blockH, (y + 1) * blockH, x * blockW, (x + 1) * blockW);
+                using var dstRoi = decoded.SubMat((originalIdx / blocksX) * blockH, ((originalIdx / blocksX) + 1) * blockH, (originalIdx % blocksX) * blockW, ((originalIdx % blocksX) + 1) * blockW);
 
                 int permKey = channelPermIndices[scrambledIdx];
                 var processed = ApplyChannelPermutation(srcRoi, permKey, false);
@@ -208,10 +211,17 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
         shiftY = ((shiftY % h) + h) % h;
         if (shiftX == 0 && shiftY == 0) return src.Clone();
         var dst = new Mat(src.Size(), src.Type());
-        src.SubMat(0, h - shiftY, 0, w - shiftX).CopyTo(dst.SubMat(shiftY, h, shiftX, w));
-        src.SubMat(0, h - shiftY, w - shiftX, w).CopyTo(dst.SubMat(shiftY, h, 0, shiftX));
-        src.SubMat(h - shiftY, h, 0, w - shiftX).CopyTo(dst.SubMat(0, shiftY, shiftX, w));
-        src.SubMat(h - shiftY, h, w - shiftX, w).CopyTo(dst.SubMat(0, shiftY, 0, shiftX));
+        void CopyPart(int x, int y, int width, int height, int targetX, int targetY)
+        {
+            if (width == 0 || height == 0) return;
+            using var source = src.SubMat(y, y + height, x, x + width);
+            using var target = dst.SubMat(targetY, targetY + height, targetX, targetX + width);
+            source.CopyTo(target);
+        }
+        CopyPart(0, 0, w - shiftX, h - shiftY, shiftX, shiftY);
+        CopyPart(w - shiftX, 0, shiftX, h - shiftY, 0, shiftY);
+        CopyPart(0, h - shiftY, w - shiftX, shiftY, shiftX, 0);
+        CopyPart(w - shiftX, h - shiftY, shiftX, shiftY, 0, 0);
         return dst;
     }
 
@@ -219,7 +229,7 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
     {
         int w = imgA.Width, h = imgA.Height;
         int edgeW = Math.Max(1, Math.Min(blockW, blockH) / 4);
-        var weight = new Mat(h, w, MatType.CV_32FC1);
+        using var weight = new Mat(h, w, MatType.CV_32FC1);
         for (int y = 0; y < h; y++)
         {
             for (int x = 0; x < w; x++)
@@ -232,47 +242,23 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
             }
         }
 
-        if (maskOffsetX != 0 || maskOffsetY != 0)
-        {
-            var shiftedWeight = ShiftWrap(weight, maskOffsetX, maskOffsetY);
-            weight.Dispose();
-            weight = shiftedWeight;
-        }
+        using var shiftedWeight = ShiftWrap(weight, maskOffsetX, maskOffsetY);
+        using var inverse = new Mat();
+        Cv2.Subtract(Scalar.All(1), shiftedWeight, inverse);
 
-        var fused = new Mat();
-        if (imgA.Channels() == 4)
+        var fused = imgA.Clone();
+        for (int c = 0; c < Math.Min(imgA.Channels(), 3); c++)
         {
-            var aCh = imgA.Split(); var bCh = imgB.Split();
-            var invWeight = new Mat(); Cv2.Subtract(new Scalar(1.0), weight, invWeight);
-            var fusedBGR = new Mat[3];
-            for (int i = 0; i < 3; i++)
-            {
-                var pA = new Mat(); var pB = new Mat();
-                Cv2.Multiply(aCh[i], invWeight, pA);
-                Cv2.Multiply(bCh[i], weight, pB);
-                fusedBGR[i] = new Mat();
-                Cv2.Add(pA, pB, fusedBGR[i]);
-                pA.Dispose(); pB.Dispose();
-            }
-            var channels = new List<Mat>(fusedBGR) { aCh[3].Clone() };
-            Cv2.Merge(channels.ToArray(), fused);
-
-            Array.ForEach(aCh, m => m.Dispose());
-            Array.ForEach(bCh, m => m.Dispose());
-            Array.ForEach(fusedBGR, m => m.Dispose());
-            invWeight.Dispose();
+            using var a = imgA.ExtractChannel(c);
+            using var b = imgB.ExtractChannel(c);
+            using var blended = new Mat();
+            Cv2.Multiply(a, inverse, blended, dtype: MatType.CV_32F);
+            using var weightedB = new Mat();
+            Cv2.Multiply(b, shiftedWeight, weightedB, dtype: MatType.CV_32F);
+            Cv2.Add(blended, weightedB, blended);
+            blended.ConvertTo(blended, imgA.Depth());
+            Cv2.InsertChannel(blended, fused, c);
         }
-        else
-        {
-            var invWeight = new Mat();
-            Cv2.Subtract(new Scalar(1.0), weight, invWeight);
-            Cv2.Multiply(imgA, invWeight, imgA);
-            Cv2.Multiply(imgB, weight, imgB);
-            Cv2.Add(imgA, imgB, fused);
-            invWeight.Dispose();
-        }
-
-        weight.Dispose();
         return fused;
     }
 
@@ -375,7 +361,11 @@ public class BlockScrambleEncryptorScriptRV2 : TunnelExtensionScriptBase
         public bool DebugMode { get => _s.DebugMode; set { if (_s.DebugMode != value) { _s.DebugMode = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(DebugMode), _s.DebugMode, value); } } }
         public int MaskOffsetX { get => _s.MaskOffsetX; set { if (_s.MaskOffsetX != value) { _s.MaskOffsetX = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(MaskOffsetX), _s.MaskOffsetX, value); } } }
         public int MaskOffsetY { get => _s.MaskOffsetY; set { if (_s.MaskOffsetY != value) { _s.MaskOffsetY = value; OnPropertyChanged(); _ = HandleParameterChangeAsync(nameof(MaskOffsetY), _s.MaskOffsetY, value); } } }
-        public override async Task OnParameterChangedAsync(string n, object o, object v) => await _s.OnParameterChangedAsync(n, o, v);
+        public override Task OnParameterChangedAsync(string n, object o, object v)
+        {
+            _s.OnParameterChanged(n, v);
+            return Task.CompletedTask;
+        }
         public override ScriptValidationResult ValidateParameter(string n, object v) => new(true);
         public override Dictionary<string, object> GetParameterData() => new() { [nameof(Seed)] = Seed, [nameof(Encrypt)] = Encrypt, [nameof(BlocksX)] = BlocksX, [nameof(BlocksY)] = BlocksY, [nameof(DebugMode)] = DebugMode, [nameof(MaskOffsetX)] = MaskOffsetX, [nameof(MaskOffsetY)] = MaskOffsetY };
         public override async Task SetParameterDataAsync(Dictionary<string, object> d) => await RunOnUIThreadAsync(() => { if (d.TryGetValue(nameof(Seed), out var s) && int.TryParse(s?.ToString(), out int i)) Seed = i; if (d.TryGetValue(nameof(Encrypt), out var b) && bool.TryParse(b?.ToString(), out bool e)) Encrypt = e; if (d.TryGetValue(nameof(BlocksX), out var bx) && int.TryParse(bx?.ToString(), out int bxInt)) BlocksX = bxInt; if (d.TryGetValue(nameof(BlocksY), out var by) && int.TryParse(by?.ToString(), out int byInt)) BlocksY = byInt; if (d.TryGetValue(nameof(DebugMode), out var dm) && bool.TryParse(dm?.ToString(), out bool dbgFlag)) DebugMode = dbgFlag; if (d.TryGetValue(nameof(MaskOffsetX), out var mox) && int.TryParse(mox?.ToString(), out int moxInt)) MaskOffsetX = moxInt; if (d.TryGetValue(nameof(MaskOffsetY), out var moy) && int.TryParse(moy?.ToString(), out int moyInt)) MaskOffsetY = moyInt; });

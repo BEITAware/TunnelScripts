@@ -105,7 +105,7 @@ public class ChannelCompositionRGBAScript : TunnelExtensionScriptBase
         Mat resultMat = new Mat(matR.Size(), MatType.CV_32FC4);
         
         // 合并通道
-        Mat[] channels = { channelR, channelG, channelB, channelA };
+        Mat[] channels = { channelB, channelG, channelR, channelA };
         Cv2.Merge(channels, resultMat);
 
         // 限制结果范围到 [0, 1]，避免因输入异常导致溢出

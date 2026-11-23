@@ -75,142 +75,8 @@ public class PreviewNodeScript : TunnelExtensionScriptBase
             };
         }
 
-        try
-        {
-            // 如果启用预览，图像会被主程序的预览系统自动显示
-            // 因为主程序会查找名为"预览节点"的节点并显示其f32bmp输出
-
-            if (EnablePreview)
-            {
-                // 在访问Width/Height前再次确认Mat有效
-                if (!inputMat.IsDisposed && !inputMat.Empty())
-                {
-                }
-                else
-                {
-                }
-
-                // 记录处理前的图像信息
-                var beforeClone = DateTime.Now;
-
-                // 直接返回输入图像引用（OpenCV Mat 使用引用计数）
-                var outputMat = inputMat;
-
-                // 记录处理后的图像信息
-                var afterClone = DateTime.Now;
-
-                // 确保输出图像有效
-                if (outputMat == null || outputMat.Empty())
-                {
-                    // 紧急措施 - 再次尝试克隆
-                    if (!inputMat.IsDisposed && !inputMat.Empty())
-                    {
-                        outputMat = inputMat.Clone();
-                    }
-                }
-
-                // 可选添加图像信息叠加
-                if (ShowInfo && outputMat != null && !outputMat.Empty())
-                {
-                    AddImageInfo(outputMat);
-                }
-
-                return new Dictionary<string, object>
-                {
-                    ["f32bmp"] = outputMat
-                };
-            }
-            else
-            {
-                // 如果禁用预览，仍直接传递引用即可
-                var disabledOutput = inputMat;
-
-                return new Dictionary<string, object>
-                {
-                    ["f32bmp"] = disabledOutput
-                };
-            }
-        }
-        catch (Exception ex)
-        {
-            // 发生异常时尝试返回原始图像的安全副本
-            return new Dictionary<string, object>
-            {
-                ["f32bmp"] = inputMat ?? new Mat()
-            };
-        }
-    }
-
-    private void AddImageInfo(Mat image)
-    {
-        try
-        {
-            // 在访问任何Mat属性之前，进行严格检查
-            if (image == null || image.IsDisposed || image.Empty())
-            {
-                return;
-            }
-
-            // 准备信息文本 - 增强RGBA支持
-            var channels = image.Channels();
-            var channelInfo = channels switch
-            {
-                1 => "Gray",
-                3 => "RGB",
-                4 => "RGBA",
-                _ => $"{channels}Ch"
-            };
-
-            var info = $"Size: {image.Width}x{image.Height}, {channelInfo}, Type: {image.Type()}";
-
-            // 如果是RGBA图像，显示Alpha通道信息
-            if (channels == 4)
-            {
-                try
-                {
-                    // 分离Alpha通道并计算统计信息
-                    var alphaChannels = new Mat[4];
-                    Cv2.Split(image, out alphaChannels);
-                    var alphaChannel = alphaChannels[3];
-
-                    Cv2.MinMaxLoc(alphaChannel, out double minAlpha, out double maxAlpha);
-                    info += $", Alpha: [{minAlpha:F2}-{maxAlpha:F2}]";
-
-                    // 清理资源
-                    foreach (var ch in alphaChannels) ch.Dispose();
-                }
-                catch
-                {
-                    info += ", Alpha: [Info N/A]";
-                }
-            }
-
-            if (!string.IsNullOrEmpty(PreviewTitle))
-            {
-                info = $"{PreviewTitle} - {info}";
-            }
-
-            // 在图像左上角添加文本
-            // 确保图像尺寸足够大以放置文本，避免异常
-            if (image.Width < 50 || image.Height < 50) // 示例阈值，可调整
-            {
-                return;
-            }
-
-            var fontScale = Math.Max(0.5, Math.Min(image.Width, image.Height) / 1000.0);
-            var thickness = Math.Max(1, (int)(fontScale * 2));
-
-            // 添加黑色背景的白色文字
-            Cv2.PutText(image, info, new OpenCvSharp.Point(10, 30),
-                       HersheyFonts.HersheySimplex, fontScale,
-                       Scalar.Black, thickness + 2); // 黑色边框
-            Cv2.PutText(image, info, new OpenCvSharp.Point(10, 30),
-                       HersheyFonts.HersheySimplex, fontScale,
-                       Scalar.White, thickness); // 白色文字
-        }
-        catch (Exception ex)
-        {
-        }
+        // 缩放、标题与信息叠加由宿主预览窗口显示，其他节点继续接收原始像素。
+        return new Dictionary<string, object> { ["f32bmp"] = inputMat.Clone() };
     }
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)
@@ -221,6 +87,7 @@ public class PreviewNodeScript : TunnelExtensionScriptBase
         metadata["PreviewEnabled"] = EnablePreview;
         metadata["PreviewTitle"] = PreviewTitle;
         metadata["AutoScale"] = AutoScale;
+        metadata["ZoomLevel"] = ZoomLevel;
         metadata["ShowInfo"] = ShowInfo;
         metadata["IsPreviewNode"] = true; // 标记这是预览节点
 

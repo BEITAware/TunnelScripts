@@ -117,7 +117,8 @@ public class CTMApplicationScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -203,13 +204,13 @@ public class CTMApplicationScript : TunnelExtensionScriptBase
         for (int x = 0; x < width; x++)
         {
             var pixel = inputImage.At<Vec4f>(y, x);
-            var inputColor = new Vec3f(pixel.Item0, pixel.Item1, pixel.Item2);
+            var inputColor = new Vec3f(pixel.Item2, pixel.Item1, pixel.Item0);
             
             // 应用CTM转换
             var transformedColor = ctmModel.Transform(inputColor);
             
             // 保持Alpha通道不变
-            var outputPixel = new Vec4f(transformedColor.Item0, transformedColor.Item1, transformedColor.Item2, pixel.Item3);
+            var outputPixel = new Vec4f(transformedColor.Item2, transformedColor.Item1, transformedColor.Item0, pixel.Item3);
             outputImage.Set(y, x, outputPixel);
         }
     }

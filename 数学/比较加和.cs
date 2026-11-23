@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -36,7 +37,7 @@ public class ComparisonSumScript : TunnelExtensionScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp"] = new PortDefinition("f32bmp", false, "输入图像")
+            ["f32bmp"] = new PortDefinition("f32bmp", true, "输入图像")
         };
     }
 
@@ -50,270 +51,104 @@ public class ComparisonSumScript : TunnelExtensionScriptBase
 
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
-        // 收集所有输入图像
-        var imageInputs = new List<Mat>();
-        
-        // 提取所有f32bmp输入（包括带序号的）
-        foreach (var kvp in inputs)
-        {
-            if ((kvp.Key == "f32bmp" || kvp.Key.StartsWith("f32bmp_")) && kvp.Value is Mat mat && !mat.Empty())
-            {
-                imageInputs.Add(mat);
-            }
-        }
+        var images = inputs.Select(pair => (Order: InputOrder(pair.Key), Image: pair.Value as Mat))
+                           .Where(layer => layer.Order >= 0 && layer.Image != null && !layer.Image.Empty())
+                           .OrderBy(layer => layer.Order)
+                           .ToList();
+        if (images.Count == 0)
+            return new() { ["f32bmp"] = new Mat(100, 100, MatType.CV_32FC4, Scalar.All(0)) };
 
-        if (imageInputs.Count == 0)
-        {
-            // 返回默认的黑色图像
-            Mat defaultImage = Mat.Zeros(100, 100, MatType.CV_32FC4);
-            return new Dictionary<string, object> { ["f32bmp"] = defaultImage };
-        }
+        var size = images[0].Image.Size();
+        if (images.Any(layer => layer.Image.Size() != size))
+            throw new ArgumentException("比较加和的所有输入图像必须具有相同尺寸。");
 
+        var output = new Mat(size, MatType.CV_32FC4, Scalar.All(0));
         try
         {
-            // 确保所有输入都是RGBA格式
-            var workingImages = new List<Mat>();
-            foreach (var img in imageInputs)
+            foreach (var layer in images)
             {
-                workingImages.Add(EnsureRGBAFormat(img));
+                using var source = ToFloatBgra(layer.Image);
+                Blend(output, source);
             }
+            return new() { ["f32bmp"] = output };
+        }
+        catch
+        {
+            output.Dispose();
+            throw;
+        }
+    }
 
-            // 执行比较加和操作
-            Mat resultMat = PerformComparisonSum(workingImages);
+    // The host appends its type name and numeric index, e.g. F32bmp_1.
+    private static long InputOrder(string name)
+    {
+        if (name.Equals("f32bmp", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (name.StartsWith("f32bmp_", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(name.Substring(7), out int index) && index >= 0)
+            return (long)index + 1;
+        return -1;
+    }
 
-            // 清理工作图像
-            foreach (var img in workingImages)
+    private static Mat ToFloatBgra(Mat input)
+    {
+        double scale = input.Depth() == MatType.CV_8U ? 1.0 / 255 :
+                       input.Depth() == MatType.CV_16U ? 1.0 / 65535 : 1;
+        if (input.Channels() == 4)
+        {
+            var result = new Mat();
+            input.ConvertTo(result, MatType.CV_32F, scale);
+            return result;
+        }
+        var conversion = input.Channels() switch {
+            1 => ColorConversionCodes.GRAY2BGRA,
+            3 => ColorConversionCodes.BGR2BGRA,
+            _ => throw new ArgumentException("仅支持灰度、BGR 和 BGRA 图像。")
+        };
+        using var floats = new Mat();
+        input.ConvertTo(floats, MatType.CV_32F, scale);
+        var bgra = new Mat();
+        Cv2.CvtColor(floats, bgra, conversion);
+        return bgra;
+    }
+
+    private unsafe void Blend(Mat background, Mat layer)
+    {
+        float threshold = Math.Clamp(Threshold, 0, 255) / 255f;
+        float strength = Math.Clamp(AlphaScale, 0, 100) / 100f;
+        for (int y = 0; y < background.Rows; y++)
+        {
+            var dst = (float*)background.Ptr(y);
+            var src = (float*)layer.Ptr(y);
+            for (int x = 0; x < background.Cols; x++, dst += 4, src += 4)
             {
-                img.Dispose();
+                float mean = (src[0] + src[1] + src[2]) / 3;
+                float difference = Math.Abs(mean - threshold);
+                float mask = CompareType switch {
+                    "less" => mean < threshold ? 1 : 0,
+                    "equal" => difference <= 0.1f ? 1 : 0,
+                    "abs_diff" => Math.Max(0, 1 - 2 * difference),
+                    _ => mean > threshold ? 1 : 0
+                };
+                float alpha = mask * strength * Math.Clamp(src[3], 0f, 1f);
+                if (alpha <= 0) continue;
+                float dstAlpha = dst[3];
+                float retained = dstAlpha * (1 - alpha);
+                float outAlpha = alpha + retained;
+                for (int c = 0; c < 3; c++)
+                {
+                    float top = src[c], bottom = dst[c];
+                    float blend = BlendMode switch {
+                        "multiply" => top * bottom,
+                        "add" => Math.Min(1, top + bottom),
+                        "screen" => 1 - (1 - top) * (1 - bottom),
+                        _ => top
+                    };
+                    float mixed = top * (1 - dstAlpha) + blend * dstAlpha;
+                    dst[c] = Math.Min(1, (mixed * alpha + bottom * retained) / outAlpha);
+                }
+                dst[3] = outAlpha;
             }
-
-            return new Dictionary<string, object> { ["f32bmp"] = resultMat };
         }
-        catch (Exception ex)
-        {
-            throw new ApplicationException($"比较加和节点处理失败: {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>
-    /// 确保图像是RGBA格式
-    /// </summary>
-    private Mat EnsureRGBAFormat(Mat inputMat)
-    {
-        if (inputMat.Channels() == 4 && inputMat.Type() == MatType.CV_32FC4)
-        {
-            return inputMat.Clone();
-        }
-
-        Mat rgbaMat = new Mat();
-        
-        if (inputMat.Channels() == 3)
-        {
-            // RGB -> RGBA
-            Cv2.CvtColor(inputMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-        }
-        else if (inputMat.Channels() == 1)
-        {
-            // 灰度 -> RGB -> RGBA
-            Mat rgbMat = new Mat();
-            Cv2.CvtColor(inputMat, rgbMat, ColorConversionCodes.GRAY2RGB);
-            Cv2.CvtColor(rgbMat, rgbaMat, ColorConversionCodes.RGB2RGBA);
-            rgbMat.Dispose();
-        }
-        else if (inputMat.Channels() == 4)
-        {
-            rgbaMat = inputMat.Clone();
-        }
-        else
-        {
-            throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
-        }
-
-        // 确保是32位浮点格式
-        if (rgbaMat.Type() != MatType.CV_32FC4)
-        {
-            Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
-            rgbaMat.Dispose();
-            return floatMat;
-        }
-
-        return rgbaMat;
-    }
-
-    /// <summary>
-    /// 执行比较加和操作
-    /// </summary>
-    private Mat PerformComparisonSum(List<Mat> images)
-    {
-        if (images.Count == 0) return Mat.Zeros(100, 100, MatType.CV_32FC4);
-
-        // 准备输出图像（与第一个输入图像大小相同）
-        Mat baseImg = Mat.Zeros(images[0].Size(), MatType.CV_32FC4);
-        float alphaScale = AlphaScale / 100.0f;
-        float normalizedThreshold = Threshold / 255.0f;
-
-        // 从底层到顶层处理每个图像
-        foreach (var img in images)
-        {
-            // 确保图像有4个通道（RGBA）
-            Mat processedImg = img.Clone();
-            
-            // 根据比较类型计算alpha通道
-            ApplyComparisonToAlpha(processedImg, normalizedThreshold, alphaScale);
-            
-            // 根据混合模式叠加图像
-            BlendImages(baseImg, processedImg);
-            
-            processedImg.Dispose();
-        }
-
-        // 确保值在有效范围内
-        Mat result = new Mat();
-        Cv2.Threshold(baseImg, result, 1.0, 1.0, ThresholdTypes.Trunc);
-        baseImg.Dispose();
-
-        return result;
-    }
-
-    /// <summary>
-    /// 根据比较类型应用Alpha通道
-    /// </summary>
-    private void ApplyComparisonToAlpha(Mat img, float threshold, float alphaScale)
-    {
-        Mat[] channels = Cv2.Split(img);
-
-        // 计算RGB平均值
-        using (var avgMat = new Mat())
-        {
-            Cv2.Add(channels[0], channels[1], avgMat);
-            Cv2.Add(avgMat, channels[2], avgMat);
-            Cv2.Divide(avgMat, new Scalar(3.0), avgMat);
-
-            switch (CompareType)
-            {
-                case "greater":
-                    // 大于阈值部分变透明
-                    Cv2.Compare(avgMat, new Scalar(threshold), channels[3], CmpType.GT);
-                    break;
-                case "less":
-                    // 小于阈值部分变透明
-                    Cv2.Compare(avgMat, new Scalar(threshold), channels[3], CmpType.LT);
-                    break;
-                case "equal":
-                    // 接近阈值部分变透明（使用高斯函数形成平滑过渡）
-                    using (var diff = new Mat())
-                    {
-                        Cv2.Absdiff(avgMat, new Scalar(threshold), diff);
-                        // 简化的接近度计算
-                        Cv2.Compare(diff, new Scalar(0.1), channels[3], CmpType.LE);
-                    }
-                    break;
-                case "abs_diff":
-                    // 绝对差值作为透明度
-                    using (var diff = new Mat())
-                    {
-                        Cv2.Absdiff(avgMat, new Scalar(threshold), diff);
-                        using (var scaledDiff = new Mat())
-                        {
-                            Cv2.Multiply(diff, new Scalar(2.0), scaledDiff);
-                            Cv2.Subtract(new Scalar(1.0), scaledDiff, channels[3]);
-                        }
-                        Cv2.Threshold(channels[3], channels[3], 0, 0, ThresholdTypes.Tozero);
-                    }
-                    break;
-                default:
-                    Cv2.Compare(avgMat, new Scalar(threshold), channels[3], CmpType.GT);
-                    break;
-            }
-
-            // 转换为浮点并应用缩放
-            channels[3].ConvertTo(channels[3], MatType.CV_32F, alphaScale / 255.0);
-        }
-
-        Cv2.Merge(channels, img);
-
-        // 清理资源
-        foreach (var ch in channels) ch.Dispose();
-    }
-
-    /// <summary>
-    /// 混合图像
-    /// </summary>
-    private void BlendImages(Mat baseImg, Mat srcImg)
-    {
-        Mat[] baseChannels = Cv2.Split(baseImg);
-        Mat[] srcChannels = Cv2.Split(srcImg);
-
-        switch (BlendMode)
-        {
-            case "normal":
-                // 正常混合：src_alpha * src + (1 - src_alpha) * dst
-                for (int i = 0; i < 3; i++)
-                {
-                    using (var temp1 = new Mat())
-                    using (var temp2 = new Mat())
-                    using (var oneMinusAlpha = new Mat())
-                    {
-                        Cv2.Multiply(srcChannels[i], srcChannels[3], temp1);
-                        Cv2.Subtract(new Scalar(1.0), srcChannels[3], oneMinusAlpha);
-                        Cv2.Multiply(baseChannels[i], oneMinusAlpha, temp2);
-                        Cv2.Add(temp1, temp2, baseChannels[i]);
-                    }
-                }
-                break;
-            case "multiply":
-                // 正片叠底：src * dst
-                for (int i = 0; i < 3; i++)
-                {
-                    using (var blended = new Mat())
-                    using (var temp1 = new Mat())
-                    using (var temp2 = new Mat())
-                    using (var oneMinusAlpha = new Mat())
-                    {
-                        Cv2.Multiply(srcChannels[i], baseChannels[i], blended);
-                        Cv2.Multiply(blended, srcChannels[3], temp1);
-                        Cv2.Subtract(new Scalar(1.0), srcChannels[3], oneMinusAlpha);
-                        Cv2.Multiply(baseChannels[i], oneMinusAlpha, temp2);
-                        Cv2.Add(temp1, temp2, baseChannels[i]);
-                    }
-                }
-                break;
-            case "screen":
-                // 滤色：1 - (1 - src) * (1 - dst)
-                for (int i = 0; i < 3; i++)
-                {
-                    using (var oneMinus1 = new Mat())
-                    using (var oneMinus2 = new Mat())
-                    using (var blended = new Mat())
-                    using (var temp1 = new Mat())
-                    using (var temp2 = new Mat())
-                    using (var oneMinusAlpha = new Mat())
-                    {
-                        Cv2.Subtract(new Scalar(1.0), srcChannels[i], oneMinus1);
-                        Cv2.Subtract(new Scalar(1.0), baseChannels[i], oneMinus2);
-                        Cv2.Multiply(oneMinus1, oneMinus2, blended);
-                        Cv2.Subtract(new Scalar(1.0), blended, blended);
-                        Cv2.Multiply(blended, srcChannels[3], temp1);
-                        Cv2.Subtract(new Scalar(1.0), srcChannels[3], oneMinusAlpha);
-                        Cv2.Multiply(baseChannels[i], oneMinusAlpha, temp2);
-                        Cv2.Add(temp1, temp2, baseChannels[i]);
-                    }
-                }
-                break;
-            default:
-                // 默认使用正常混合
-                goto case "normal";
-        }
-
-        // 更新Alpha通道（取最大值）
-        Cv2.Max(baseChannels[3], srcChannels[3], baseChannels[3]);
-
-        Cv2.Merge(baseChannels, baseImg);
-
-        // 清理资源
-        foreach (var ch in baseChannels) ch.Dispose();
-        foreach (var ch in srcChannels) ch.Dispose();
     }
 
     public override FrameworkElement CreateParameterControl()
@@ -412,6 +247,7 @@ public class ComparisonSumScript : TunnelExtensionScriptBase
             {
                 { "normal", "正常" },
                 { "add", "线性减淡(添加)" },
+                { "multiply", "正片叠底" },
                 { "screen", "滤色" }
             },
             SelectedValuePath = "Key",
@@ -450,10 +286,10 @@ public class ComparisonSumScript : TunnelExtensionScriptBase
     {
         if (data.TryGetValue(nameof(CompareType), out var compareType))
             CompareType = compareType?.ToString() ?? "greater";
-        if (data.TryGetValue(nameof(Threshold), out var threshold))
-            Threshold = Convert.ToInt32(threshold);
-        if (data.TryGetValue(nameof(AlphaScale), out var alphaScale))
-            AlphaScale = Convert.ToInt32(alphaScale);
+        if (data.TryGetValue(nameof(Threshold), out var threshold) && int.TryParse(threshold?.ToString(), out var parsedThreshold))
+            Threshold = Math.Clamp(parsedThreshold, 0, 255);
+        if (data.TryGetValue(nameof(AlphaScale), out var alphaScale) && int.TryParse(alphaScale?.ToString(), out var parsedAlphaScale))
+            AlphaScale = Math.Clamp(parsedAlphaScale, 0, 100);
         if (data.TryGetValue(nameof(BlendMode), out var blendMode))
             BlendMode = blendMode?.ToString() ?? "normal";
         if (data.TryGetValue("NodeInstanceId", out var nodeId))
@@ -566,10 +402,10 @@ public class ComparisonSumViewModel : ScriptViewModelBase
     {
         if (data.TryGetValue(nameof(CompareType), out var compareType))
             CompareType = compareType?.ToString() ?? "greater";
-        if (data.TryGetValue(nameof(Threshold), out var threshold))
-            Threshold = Convert.ToInt32(threshold);
-        if (data.TryGetValue(nameof(AlphaScale), out var alphaScale))
-            AlphaScale = Convert.ToInt32(alphaScale);
+        if (data.TryGetValue(nameof(Threshold), out var threshold) && int.TryParse(threshold?.ToString(), out var parsedThreshold))
+            Threshold = Math.Clamp(parsedThreshold, 0, 255);
+        if (data.TryGetValue(nameof(AlphaScale), out var alphaScale) && int.TryParse(alphaScale?.ToString(), out var parsedAlphaScale))
+            AlphaScale = Math.Clamp(parsedAlphaScale, 0, 100);
         if (data.TryGetValue(nameof(BlendMode), out var blendMode))
             BlendMode = blendMode?.ToString() ?? "normal";
         await Task.CompletedTask;

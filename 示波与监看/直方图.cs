@@ -138,29 +138,9 @@ namespace Scripts.示波与监看
             const int histogramX = 100;
             const int histogramY = 50;
 
-            // 动态计算bins数量和分析精度
-            var analysisConfig = DetermineAnalysisConfiguration(inputMat);
-
-            // 创建输出图像 (BGRA格式)
+            using var processedInput = EnsureBGRAFormat(inputMat);
+            var analysisConfig = DetermineAnalysisConfiguration(processedInput);
             var outputMat = new Mat(outputHeight, outputWidth, MatType.CV_32FC4, new Scalar(0.1, 0.1, 0.1, 1.0));
-
-            // 确保输入是4通道BGRA格式
-            Mat processedInput;
-            if (inputMat.Channels() == 3)
-            {
-                processedInput = new Mat();
-                Cv2.CvtColor(inputMat, processedInput, ColorConversionCodes.BGR2BGRA);
-            }
-            else if (inputMat.Channels() == 4)
-            {
-                processedInput = inputMat.Clone();
-            }
-            else
-            {
-                // 单通道转BGRA
-                processedInput = new Mat();
-                Cv2.CvtColor(inputMat, processedInput, ColorConversionCodes.GRAY2BGRA);
-            }
 
             // 计算高精度直方图 (并行处理)
             var histogramData = CalculateHighPrecisionHistogram(processedInput, analysisConfig);
@@ -174,9 +154,6 @@ namespace Scripts.示波与监看
 
             // 绘制统计信息
             DrawStatistics(outputMat, statistics, histogramY + histogramHeight + 30);
-
-            if (processedInput != inputMat)
-                processedInput.Dispose();
 
             return outputMat;
         }
@@ -211,6 +188,23 @@ namespace Scripts.示波与监看
             public double TrueEffectiveBitDepth { get; set; } // 基于实际数据分析的位深度
             public int UniqueValues { get; set; }
             public string AnalysisMode { get; set; } = "";
+        }
+
+        private Mat EnsureBGRAFormat(Mat inputMat)
+        {
+            using var normalized = new Mat();
+            double scale = inputMat.Depth() == MatType.CV_8U ? 1.0 / 255.0 :
+                           inputMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0;
+            inputMat.ConvertTo(normalized, MatType.CV_32F, scale);
+            var bgra = new Mat();
+            switch (normalized.Channels())
+            {
+                case 1: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.GRAY2BGRA); break;
+                case 3: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.BGR2BGRA); break;
+                case 4: normalized.CopyTo(bgra); break;
+                default: throw new ArgumentException("需要单通道、BGR 或 BGRA 图像");
+            }
+            return bgra;
         }
 
         private AnalysisConfiguration DetermineAnalysisConfiguration(Mat inputMat)

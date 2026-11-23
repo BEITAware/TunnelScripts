@@ -149,26 +149,19 @@ namespace Scripts.示波与监看
 
         private Mat EnsureBGRAFormat(Mat inputMat)
         {
-            if (inputMat.Channels() == 4)
+            using var normalized = new Mat();
+            double scale = inputMat.Depth() == MatType.CV_8U ? 1.0 / 255.0 :
+                           inputMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0;
+            inputMat.ConvertTo(normalized, MatType.CV_32F, scale);
+            var bgra = new Mat();
+            switch (normalized.Channels())
             {
-                return inputMat.Clone();
+                case 1: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.GRAY2BGRA); break;
+                case 3: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.BGR2BGRA); break;
+                case 4: normalized.CopyTo(bgra); break;
+                default: throw new ArgumentException("需要单通道、BGR 或 BGRA 图像");
             }
-            else if (inputMat.Channels() == 3)
-            {
-                var bgraMat = new Mat();
-                Cv2.CvtColor(inputMat, bgraMat, ColorConversionCodes.BGR2BGRA);
-                return bgraMat;
-            }
-            else if (inputMat.Channels() == 1)
-            {
-                var bgraMat = new Mat();
-                Cv2.CvtColor(inputMat, bgraMat, ColorConversionCodes.GRAY2BGRA);
-                return bgraMat;
-            }
-            else
-            {
-                throw new NotSupportedException($"不支持 {inputMat.Channels()} 通道的图像");
-            }
+            return bgra;
         }
 
         private class WaveformData
@@ -395,12 +388,7 @@ namespace Scripts.示波与监看
                         var bIntensity = Math.Min(1.0f, bValue / maxValue);
 
                         // 直接RGB混合，无额外处理
-                        var pixelColor = new Scalar(
-                            bIntensity * 255,  // OpenCV使用BGR顺序
-                            gIntensity * 255,
-                            rIntensity * 255,
-                            255
-                        );
+                        var pixelColor = new Vec4f(bIntensity, gIntensity, rIntensity, 1f);
 
                         // 直接绘制像素点，无线段处理
                         outputMat.Set(screenY, screenX, pixelColor);
@@ -427,12 +415,8 @@ namespace Scripts.示波与监看
                     var screenY = y + height - (bin * height) / bins;
 
                     // 绘制像素点，亮度反映像素数量
-                    var pixelColor = new Scalar(
-                        color.Val0 * intensity,
-                        color.Val1 * intensity,
-                        color.Val2 * intensity,
-                        color.Val3
-                    );
+                    var pixelColor = new Vec4f((float)color.Val0 * intensity, (float)color.Val1 * intensity,
+                                               (float)color.Val2 * intensity, (float)color.Val3);
 
                     // 直接绘制像素点，无最小值限制
                     outputMat.Set(screenY, screenX, pixelColor);

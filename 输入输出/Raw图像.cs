@@ -30,7 +30,7 @@ public class ImageInputScript : TunnelExtensionScriptBase
     [ScriptParameter(DisplayName = "使用相机白平衡", Description = "使用相机内置白平衡而非手动", Order = 2)]
     public bool UseCameraWb { get; set; } = true;
 
-    [ScriptParameter(DisplayName = "输出TIFF", Description = "输出TIFF格式而非Bitmap", Order = 3)]
+    [ScriptParameter(DisplayName = "输出TIFF", Description = "生成 16 位 TIFF 字节数据，可连接写入文件节点", Order = 3)]
     public bool OutputTiff { get; set; } = false;
 
     [ScriptParameter(DisplayName = "Gamma指数", Description = "Gamma曲线指数 (0-1)", Order = 4)]
@@ -57,7 +57,8 @@ public class ImageInputScript : TunnelExtensionScriptBase
         return new Dictionary<string, PortDefinition>
         {
             ["f32bmp"] = new PortDefinition("f32bmp", false, "输出图像"),
-            ["raw"] = new PortDefinition("raw", false, "输出裸Raw数据")
+            ["raw"] = new PortDefinition("raw", false, "线性 RAW 处理结果"),
+            ["tiff"] = new PortDefinition("Any", false, "可选 16 位 TIFF 字节数据")
         };
     }
 
@@ -70,27 +71,29 @@ public class ImageInputScript : TunnelExtensionScriptBase
 
         try
         {
-            // 利用 LibRaw 加载 RAW 图像并转换为 OpenCV BGRA 32F
             var outputMat = LoadRawToRGBA32F(ImagePath);
-
-            if (outputMat == null || outputMat.Empty())
+            Mat? rawMat = null;
+            try
             {
-                throw new InvalidOperationException("RAW 图像加载或转换失败");
+                rawMat = LoadRawData(ImagePath);
+                var outputs = new Dictionary<string, object> { ["f32bmp"] = outputMat, ["raw"] = rawMat };
+                if (OutputTiff)
+                {
+                    using var bgr = outputMat.CvtColor(ColorConversionCodes.BGRA2BGR);
+                    using var tiffPixels = new Mat();
+                    bgr.ConvertTo(tiffPixels, MatType.CV_16U, 65535);
+                    if (!Cv2.ImEncode(".tiff", tiffPixels, out byte[] bytes))
+                        throw new InvalidOperationException("无法编码 16 位 TIFF");
+                    outputs["tiff"] = bytes;
+                }
+                return outputs;
             }
-            
-            var outputs = new Dictionary<string, object>
+            catch
             {
-                ["f32bmp"] = outputMat
-            };
-
-            // 输出裸Raw数据
-            var rawMat = LoadRawData(ImagePath);
-            if(rawMat != null && !rawMat.Empty())
-            {
-                outputs["raw"] = rawMat;
+                rawMat?.Dispose();
+                outputMat.Dispose();
+                throw;
             }
-
-            return outputs;
         }
         catch (Exception ex)
         {
@@ -114,40 +117,10 @@ public class ImageInputScript : TunnelExtensionScriptBase
             c.Brightness = (float)RawBrightness;
             c.Interpolation = true; // 总是进行插值
             c.OutputBps = 16;
-            c.OutputTiff = OutputTiff;
         });
         using ProcessedImage img = ctx.MakeDcrawMemoryImage();
 
-        // img.SwapRGB(); // Bypass LibRaw's swap, let OpenCV handle color conversion robustly.
-
-        int width = img.Width;
-        int height = img.Height;
-
-        Mat matRgb32 = new Mat();
-
-        using (Mat matRgb16 = Mat.FromPixelData(height, width, MatType.CV_16UC3, img.DataPointer, width * 3 * 2))
-        {
-            matRgb16.ConvertTo(matRgb32, MatType.CV_32FC3, 1.0 / 65535.0);
-        }
-
-        // Normalize the image to the [0.0, 1.0] range.
-        // LibRaw processing with brightness adjustments can push values beyond 1.0.
-        Cv2.Threshold(matRgb32, matRgb32, 1.0, 1.0, ThresholdTypes.Trunc);
-
-        // LibRaw outputs RGB, convert to BGRA for the pipeline.
-        // The CvtColor call was causing issues with the alpha channel, so we build it manually.
-        Mat[] rgbChannels = Cv2.Split(matRgb32);
-        Mat alphaChannel = new Mat(matRgb32.Size(), MatType.CV_32FC1, new Scalar(1.0));
-
-        Mat matBgra32 = new Mat();
-        // The source data is RGB, so the split channels are R, G, B.
-        // To create a BGRA Mat, we merge them in the order: B, G, R, Alpha.
-        Cv2.Merge(new Mat[] { rgbChannels[2], rgbChannels[1], rgbChannels[0], alphaChannel }, matBgra32);
-        
-        foreach (var ch in rgbChannels) ch.Dispose();
-        alphaChannel.Dispose();
-        matRgb32.Dispose();
-        return matBgra32;
+        return ConvertMemoryImage(img);
     }
 
     private Mat LoadRawData(string rawPath)
@@ -163,38 +136,30 @@ public class ImageInputScript : TunnelExtensionScriptBase
             c.Brightness = 1.0f;
             c.Interpolation = false; // 不进行插值
             c.OutputBps = 16;
-            c.OutputTiff = false;
             c.NoAutoBright = true;
         });
         using ProcessedImage img = ctx.MakeDcrawMemoryImage();
 
-        int width = img.Width;
-        int height = img.Height;
+        return ConvertMemoryImage(img);
+    }
 
-        Mat matRgb32 = new Mat();
+    private static Mat ConvertMemoryImage(ProcessedImage img)
+    {
+        // libraw_dcraw_make_mem_image returns tightly packed RGB or grayscale samples.
+        // The LibRaw OutputTiff flag applies to its file writer, not this memory layout.
+        int width = img.Width, height = img.Height, channels = img.Channels, bits = img.Bits;
+        if (img.ImageType != ProcessedImageType.Bitmap || width <= 0 || height <= 0 ||
+            img.DataPointer == IntPtr.Zero || channels is not (1 or 3) || bits is not (8 or 16))
+            throw new NotSupportedException($"不支持的 LibRaw 位图：{width}×{height}, {channels} 通道, {bits} 位");
+        long stride = checked((long)width * channels * (bits / 8));
+        if (img.DataSize != checked(stride * height))
+            throw new InvalidOperationException("LibRaw 像素数据长度与图像尺寸不符");
 
-        using (Mat matRgb16 = Mat.FromPixelData(height, width, MatType.CV_16UC3, img.DataPointer, width * 3 * 2))
-        {
-            matRgb16.ConvertTo(matRgb32, MatType.CV_32FC3, 1.0 / 65535.0);
-        }
-
-        // Normalize the image to the [0.0, 1.0] range to ensure it's a standard f32bmp.
-        Cv2.Threshold(matRgb32, matRgb32, 1.0, 1.0, ThresholdTypes.Trunc);
-
-        // LibRaw outputs RGB data. To create a BGRA Mat for the pipeline,
-        // we need to swap the R and B channels and add a full alpha channel.
-        Mat[] rgbChannels = Cv2.Split(matRgb32);
-        Mat alphaChannel = new Mat(matRgb32.Size(), MatType.CV_32FC1, new Scalar(1.0));
-
-        Mat matBgra32 = new Mat();
-        // The source data is RGB, so the split channels are R, G, B.
-        // To create a BGRA Mat, we merge them in the order: B, G, R, Alpha.
-        Cv2.Merge(new Mat[] { rgbChannels[2], rgbChannels[1], rgbChannels[0], alphaChannel }, matBgra32);
-
-        foreach (var ch in rgbChannels) ch.Dispose();
-        alphaChannel.Dispose();
-        matRgb32.Dispose();
-        return matBgra32;
+        MatType type = bits == 8 ? MatType.CV_8UC(channels) : MatType.CV_16UC(channels);
+        using var pixels = Mat.FromPixelData(height, width, type, img.DataPointer, stride);
+        using var normalized = new Mat();
+        pixels.ConvertTo(normalized, MatType.CV_32F, bits == 8 ? 1.0 / 255 : 1.0 / 65535);
+        return normalized.CvtColor(channels == 1 ? ColorConversionCodes.GRAY2BGRA : ColorConversionCodes.RGB2BGRA);
     }
 
     public override Dictionary<string, object> InjectMetadata(Dictionary<string, object> currentMetadata)
@@ -335,7 +300,7 @@ public class ImageInputScript : TunnelExtensionScriptBase
 
         mainPanel.Children.Add(CreateCheck("半尺寸解码", nameof(HalfSize)));
         mainPanel.Children.Add(CreateCheck("使用相机白平衡", nameof(UseCameraWb)));
-        mainPanel.Children.Add(CreateCheck("输出TIFF", nameof(OutputTiff)));
+        mainPanel.Children.Add(CreateCheck("输出 TIFF 数据", nameof(OutputTiff)));
         mainPanel.Children.Add(CreateSlider("Gamma指数", nameof(GammaExponent), 0.0, 1.0));
         mainPanel.Children.Add(CreateSlider("Gamma斜率", nameof(GammaSlope), 1.0, 5.0));
         mainPanel.Children.Add(CreateSlider("亮度", nameof(RawBrightness), 0.0, 5.0));

@@ -55,8 +55,8 @@ namespace TNX_Scripts.ScriptPrototypes
 
         public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
         {
-            int w = Math.Max(1, Width);
-            int h = Math.Max(1, Height);
+            int w = Math.Clamp(Width, 1, 8192);
+            int h = Math.Clamp(Height, 1, 8192);
 
             // 使用 WPF RenderTargetBitmap
             var dv = new DrawingVisual();
@@ -78,7 +78,9 @@ namespace TNX_Scripts.ScriptPrototypes
 
                 double x = Math.Max(0, (w - ft.Width) / 2);
                 double y = Math.Max(0, (h - ft.Height) / 2);
-                dc.DrawText(ft, new System.Windows.Point(x, y));
+                var glyphs = ft.BuildGeometry(new System.Windows.Point(x, y));
+                var stroke = Thickness > 1 ? new Pen(Brushes.White, Thickness - 1) { LineJoin = PenLineJoin.Round } : null;
+                dc.DrawGeometry(Brushes.White, stroke, glyphs);
             }
 
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
@@ -93,7 +95,7 @@ namespace TNX_Scripts.ScriptPrototypes
             using var mat8 = new Mat(h, w, MatType.CV_8UC4);
             Marshal.Copy(pixels, 0, mat8.Data, pixels.Length);
 
-            var mat8bgr = new Mat();
+            using var mat8bgr = new Mat();
             Cv2.CvtColor(mat8, mat8bgr, ColorConversionCodes.BGRA2BGR);
 
             var mat32 = new Mat();
@@ -280,7 +282,7 @@ namespace TNX_Scripts.ScriptPrototypes
                 if (TxtScript.Width != value)
                 {
                     var old = TxtScript.Width;
-                    TxtScript.Width = Math.Max(1, value);
+                    TxtScript.Width = Math.Clamp(value, 1, 8192);
                     OnPropertyChanged();
                     NotifyParameterChanged(nameof(Width), value);
                 }
@@ -295,7 +297,7 @@ namespace TNX_Scripts.ScriptPrototypes
                 if (TxtScript.Height != value)
                 {
                     var old = TxtScript.Height;
-                    TxtScript.Height = Math.Max(1, value);
+                    TxtScript.Height = Math.Clamp(value, 1, 8192);
                     OnPropertyChanged();
                     NotifyParameterChanged(nameof(Height), value);
                 }

@@ -62,7 +62,9 @@ public class ColorCardSamplingScript : TunnelExtensionScriptBase
         try
         {
             // 确保输入是RGBA格式
-            Mat workingMat = EnsureRGBAFormat(inputMat);
+            if (Rows < 1 || Columns < 1 || SampleRegionSize < 0)
+                throw new ArgumentException("行列数必须为正，采样半径不能为负");
+            using Mat workingMat = EnsureRGBAFormat(inputMat);
             
             // 获取色卡角点
             var corners = GetColorCheckerCorners(workingMat);
@@ -126,7 +128,8 @@ public class ColorCardSamplingScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -244,7 +247,7 @@ public class ColorCardSamplingScript : TunnelExtensionScriptBase
             OpenCvSharp.Point topLeft = new OpenCvSharp.Point(centerPoint.X - regionSize, centerPoint.Y - regionSize);
             OpenCvSharp.Point bottomRight = new OpenCvSharp.Point(centerPoint.X + regionSize, centerPoint.Y + regionSize);
 
-            Cv2.Rectangle(visualizationImage, topLeft, bottomRight, new Scalar(1.0, 0.0, 0.0, 1.0), 2);
+            Cv2.Rectangle(visualizationImage, topLeft, bottomRight, new Scalar(0.0, 0.0, 1.0, 1.0), 2);
 
             // 绘制中心点
             Cv2.Circle(visualizationImage, centerPoint, 3, new Scalar(0.0, 1.0, 0.0, 1.0), -1);
