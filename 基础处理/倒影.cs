@@ -42,7 +42,7 @@ public class ReflectionScript : TunnelExtensionScriptBase
         return new Dictionary<string, PortDefinition>
         {
             ["f32bmp"] = new PortDefinition("f32bmp", false, "输出图像 (含倒影)"),
-            ["f32bmp_reflection"] = new PortDefinition("f32bmp_reflection", false, "仅倒影")
+            ["f32bmp_reflection"] = new PortDefinition("f32bmp", false, "仅倒影")
         };
     }
 
@@ -164,7 +164,8 @@ public class ReflectionScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }

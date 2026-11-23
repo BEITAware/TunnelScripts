@@ -38,103 +38,114 @@ namespace Tunnel_Next.Scripts
             if (!inputs.TryGetValue("f32bmp", out var imgObj) || imgObj is not Mat src || src.Empty())
                 return new() { ["f32bmp"] = canvas.Clone() };
 
-            int w = canvas.Width;
-            int h = canvas.Height;
-            Mat result = canvas.Clone();
-            using var warped = WarpToCanvas(src, w, h, _param);
-            BlendToCanvas(result, warped);
+            using var layer = To32FC4(src);
+            Premultiply(layer);
+            using var warped = WarpToCanvas(layer, canvas.Width, canvas.Height, _param);
+            using var blended = To32FC4(canvas);
+            BlendToCanvas(blended, warped);
+            using var converted = new Mat();
+            if (canvas.Channels() == 1)
+                Cv2.CvtColor(blended, converted, ColorConversionCodes.BGRA2GRAY);
+            else if (canvas.Channels() == 3)
+                Cv2.CvtColor(blended, converted, ColorConversionCodes.BGRA2BGR);
+
+            var result = new Mat();
+            double range = canvas.Depth() == MatType.CV_8U ? 255 : canvas.Depth() == MatType.CV_16U ? 65535 : 1;
+            (canvas.Channels() == 4 ? blended : converted).ConvertTo(result, canvas.Type(), range);
             return new() { ["f32bmp"] = result };
         }
 
         private static Mat WarpToCanvas(Mat src, int canvasW, int canvasH, ProjectionParam p)
         {
             double scale = p.ScalePercent / 100.0;
-            double d = p.Distance;
-            double halfW = src.Width * scale / 2.0;
-            double halfH = src.Height * scale / 2.0;
+            double distance = p.Distance;
+            if (!double.IsFinite(distance) || !double.IsFinite(scale) || distance <= 0 || scale <= 0)
+                throw new ArgumentOutOfRangeException("Distance / ScalePercent");
 
-            // Rotation matrices
-            double rx = Deg2Rad(p.ThetaX), ry = Deg2Rad(p.ThetaY), rz = Deg2Rad(p.ThetaZ);
-            var R = ComposeRotation(rx, ry, rz);
+            // Map pixel centers through the rotated plane, then divide by camera depth.
+            var r = ComposeRotation(Deg2Rad(p.ThetaX), Deg2Rad(p.ThetaY), Deg2Rad(p.ThetaZ));
+            double cx = (src.Width - 1) * 0.5, cy = (src.Height - 1) * 0.5;
+            double destX = (canvasW - 1) * 0.5, destY = (canvasH - 1) * 0.5;
+            double zx = scale * r[2][0], zy = scale * r[2][1];
+            double xx = distance * scale * r[0][0] + destX * zx;
+            double xy = distance * scale * r[0][1] + destX * zy;
+            double yx = distance * scale * r[1][0] + destY * zx;
+            double yy = distance * scale * r[1][1] + destY * zy;
+            using var matrix = new Mat(3, 3, MatType.CV_64F);
+            matrix.SetArray(new double[] {
+                xx, xy, distance * (p.Tx + destX) - xx * cx - xy * cy,
+                yx, yy, distance * (p.Ty + destY) - yx * cx - yy * cy,
+                zx, zy, distance - zx * cx - zy * cy
+            });
+            double determinant = Cv2.Determinant(matrix);
+            var size = new OpenCvSharp.Size(canvasW, canvasH);
+            if (!double.IsFinite(determinant))
+                throw new ArgumentException("投影参数必须为有限数值。");
+            if (Math.Abs(determinant) <= 1e-10 * distance * distance * distance * scale * scale)
+                return new Mat(size, src.Type(), Scalar.All(0));
 
-            double[][] corners3 = new[]
-            {
-                new[]{ -halfW, -halfH, d },
-                new[]{  halfW, -halfH, d },
-                new[]{  halfW,  halfH, d },
-                new[]{ -halfW,  halfH, d }
-            };
-
-            Point2f[] dst2D = new Point2f[4];
-            for (int i = 0; i < 4; i++)
-            {
-                var c = corners3[i];
-                var v = new[] { c[0], c[1], 0 }; // relative
-                var rot = Mul(R, v);
-                double x3 = rot[0] + p.Tx;
-                double y3 = rot[1] + p.Ty;
-                double z3 = rot[2] + d;
-                if (z3 <= 1) z3 = 1; // clamp
-                dst2D[i] = new Point2f((float)(d * x3 / z3 + canvasW / 2.0), (float)(d * y3 / z3 + canvasH / 2.0));
-            }
-            Point2f[] srcPts = {
-                new Point2f(0,0), new Point2f(src.Width-1,0), new Point2f(src.Width-1,src.Height-1), new Point2f(0,src.Height-1)
-            };
-            using var M = Cv2.GetPerspectiveTransform(srcPts, dst2D);
-            var warped = new Mat();
-            Cv2.WarpPerspective(src, warped, M, new OpenCvSharp.Size(canvasW, canvasH), InterpolationFlags.Linear, BorderTypes.Constant);
-            return warped;
+            var output = new Mat();
+            Cv2.WarpPerspective(src, output, matrix, size, InterpolationFlags.Linear, BorderTypes.Constant);
+            return output;
         }
 
-        private static void BlendToCanvas(Mat canvas, Mat overlay)
+        private static Mat To32FC4(Mat src)
         {
-            bool srcHasAlpha = overlay.Channels() == 4;
-            bool dstHasAlpha = canvas.Channels() == 4;
-
-            if (!srcHasAlpha)
+            double scale = src.Depth() == MatType.CV_8U ? 1.0 / 255 :
+                           src.Depth() == MatType.CV_16U ? 1.0 / 65535 : 1.0;
+            if (src.Channels() == 4)
             {
-                // 无 Alpha 简单覆盖非零像素
-                using var gray = new Mat();
-                Cv2.CvtColor(overlay, gray, ColorConversionCodes.BGR2GRAY);
-                using var mask = new Mat();
-                Cv2.Threshold(gray, mask, 0, 1.0, ThresholdTypes.Binary);
-                overlay.CopyTo(canvas, mask);
-                return;
+                var result = new Mat();
+                src.ConvertTo(result, MatType.CV_32F, scale);
+                return result;
             }
-
-            // 分离通道
-            Cv2.Split(overlay, out Mat[] srcCh); // 0,1,2,3
-            Cv2.Split(canvas, out Mat[] dstCh); // size 3 or 4
-
-            var alpha = srcCh[3]; // CV_32F 0-1
-            var invAlpha = new Mat();
-            Cv2.Subtract(new Scalar(1.0), alpha, invAlpha); // 1-alpha
-
-            for (int c = 0; c < 3; c++)
+            var conversion = src.Channels() switch
             {
-                var blended = new Mat();
-                Cv2.Multiply(srcCh[c], alpha, blended);
-                var dstPart = new Mat();
-                Cv2.Multiply(dstCh[c], invAlpha, dstPart);
-                Cv2.Add(blended, dstPart, dstCh[c]);
-                blended.Dispose(); dstPart.Dispose();
-            }
+                1 => ColorConversionCodes.GRAY2BGRA,
+                3 => ColorConversionCodes.BGR2BGRA,
+                _ => throw new ArgumentException("仅支持灰度、BGR 和 BGRA 图像。")
+            };
+            using var floats = new Mat();
+            src.ConvertTo(floats, MatType.CV_32F, scale);
+            var bgra = new Mat();
+            Cv2.CvtColor(floats, bgra, conversion);
+            return bgra;
+        }
 
-            if (dstHasAlpha)
+        private static void Premultiply(Mat image)
+        {
+            unsafe
             {
-                var newA = new Mat();
-                Cv2.Multiply(dstCh[3], invAlpha, dstCh[3]); // dstA * (1-a)
-                Cv2.Add(dstCh[3], alpha, dstCh[3]); // + a
-                newA.Dispose();
+                for (int y = 0; y < image.Rows; y++)
+                {
+                    var row = (float*)image.Ptr(y);
+                    for (int x = 0; x < image.Cols; x++, row += 4)
+                    {
+                        float alpha = Math.Clamp(row[3], 0f, 1f);
+                        row[3] = alpha;
+                        for (int c = 0; c < 3; c++) row[c] *= alpha;
+                    }
+                }
             }
+        }
 
-            using var merged = new Mat();
-            Cv2.Merge(dstCh, merged);
-            merged.CopyTo(canvas);
-
-            foreach (var m in srcCh) m.Dispose();
-            foreach (var m in dstCh) m.Dispose();
-            alpha.Dispose(); invAlpha.Dispose();
+        // Warp premultiplied colors, then return the host's straight-alpha pixels.
+        private static unsafe void BlendToCanvas(Mat canvas, Mat overlay)
+        {
+            for (int y = 0; y < canvas.Rows; y++)
+            {
+                var dst = (float*)canvas.Ptr(y);
+                var src = (float*)overlay.Ptr(y);
+                for (int x = 0; x < canvas.Cols; x++, dst += 4, src += 4)
+                {
+                    float alpha = src[3];
+                    if (alpha <= 0) continue;
+                    float retained = Math.Clamp(dst[3], 0f, 1f) * (1 - alpha);
+                    float outputAlpha = alpha + retained;
+                    for (int c = 0; c < 3; c++) dst[c] = (src[c] + dst[c] * retained) / outputAlpha;
+                    dst[3] = outputAlpha;
+                }
+            }
         }
         #endregion
 
@@ -252,15 +263,17 @@ namespace Tunnel_Next.Scripts
                     r[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
             return r;
         }
-        private static double[] Mul(double[][] M, double[] v) => new[]
-        {
-            M[0][0]*v[0] + M[0][1]*v[1] + M[0][2]*v[2],
-            M[1][0]*v[0] + M[1][1]*v[1] + M[1][2]*v[2],
-            M[2][0]*v[0] + M[2][1]*v[1] + M[2][2]*v[2]
-        };
         #endregion
 
         #region 内部类型
+        private static double ReadNumber(Dictionary<string, object> values, string key, double fallback)
+        {
+            if (!values.TryGetValue(key, out var raw) || raw == null) return fallback;
+            if (raw is System.Text.Json.JsonElement element)
+                return element.ValueKind == System.Text.Json.JsonValueKind.Number && element.TryGetDouble(out var value) && double.IsFinite(value) ? value : fallback;
+            return double.TryParse(raw.ToString(), out var parsed) && double.IsFinite(parsed) ? parsed : fallback;
+        }
+
         private class ProjectionParam
         {
             public double ThetaX = 0, ThetaY = 0, ThetaZ = 0;
@@ -276,13 +289,13 @@ namespace Tunnel_Next.Scripts
             public static ProjectionParam FromDict(Dictionary<string, object> d)
             {
                 var p = new ProjectionParam();
-                if (d.TryGetValue(nameof(ThetaX), out var v)) p.ThetaX = Convert.ToDouble(v);
-                if (d.TryGetValue(nameof(ThetaY), out var v2)) p.ThetaY = Convert.ToDouble(v2);
-                if (d.TryGetValue(nameof(ThetaZ), out var v3)) p.ThetaZ = Convert.ToDouble(v3);
-                if (d.TryGetValue(nameof(Tx), out var v4)) p.Tx = Convert.ToDouble(v4);
-                if (d.TryGetValue(nameof(Ty), out var v5)) p.Ty = Convert.ToDouble(v5);
-                if (d.TryGetValue(nameof(Distance), out var v6)) p.Distance = Convert.ToDouble(v6);
-                if (d.TryGetValue(nameof(ScalePercent), out var v7)) p.ScalePercent = Convert.ToDouble(v7);
+                p.ThetaX = ReadNumber(d, nameof(ThetaX), p.ThetaX);
+                p.ThetaY = ReadNumber(d, nameof(ThetaY), p.ThetaY);
+                p.ThetaZ = ReadNumber(d, nameof(ThetaZ), p.ThetaZ);
+                p.Tx = ReadNumber(d, nameof(Tx), p.Tx);
+                p.Ty = ReadNumber(d, nameof(Ty), p.Ty);
+                p.Distance = ReadNumber(d, nameof(Distance), p.Distance);
+                p.ScalePercent = ReadNumber(d, nameof(ScalePercent), p.ScalePercent);
                 return p;
             }
         }

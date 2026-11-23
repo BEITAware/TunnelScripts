@@ -58,114 +58,45 @@ namespace Tunnel_Next.Scripts
             if (IsDefault())
                 return new() { ["f32bmp"] = src.Clone() };
 
-            try
-            {
-                return new() { ["f32bmp"] = Project(src) };
-            }
-            catch
-            {
-                return new() { ["f32bmp"] = src.Clone() };
-            }
+            return new() { ["f32bmp"] = Project(src) };
         }
 
         private bool IsDefault() => Math.Abs(ThetaX) < 1e-6 && Math.Abs(ThetaY) < 1e-6 && Math.Abs(ThetaZ) < 1e-6 &&
                                      Math.Abs(Tx) < 1e-6 && Math.Abs(Ty) < 1e-6 &&
                                      Math.Abs(Distance - 1000) < 1e-6 && Math.Abs(ScalePercent - 100) < 1e-6;
 
-        private Mat? _lastH;
-
-        private Mat Project(Mat input)
+        private Mat Project(Mat src)
         {
-            int w = input.Width;
-            int h = input.Height;
             double scale = ScalePercent / 100.0;
-            double d = Distance;
+            double distance = Distance;
+            if (!double.IsFinite(distance) || !double.IsFinite(scale) || distance <= 0 || scale <= 0)
+                throw new ArgumentOutOfRangeException("Distance / ScalePercent");
 
-            // 旋转矩阵 (Z->Y->X)
-            var R = ComposeRotation(Deg2Rad(ThetaX), Deg2Rad(ThetaY), Deg2Rad(ThetaZ));
+            // Map pixel centers through the rotated plane, then divide by camera depth.
+            var r = ComposeRotation(Deg2Rad(ThetaX), Deg2Rad(ThetaY), Deg2Rad(ThetaZ));
+            double cx = (src.Width - 1) * 0.5, cy = (src.Height - 1) * 0.5;
+            double destX = (src.Width - 1) * 0.5, destY = (src.Height - 1) * 0.5;
+            double zx = scale * r[2][0], zy = scale * r[2][1];
+            double xx = distance * scale * r[0][0] + destX * zx;
+            double xy = distance * scale * r[0][1] + destX * zy;
+            double yx = distance * scale * r[1][0] + destY * zx;
+            double yy = distance * scale * r[1][1] + destY * zy;
+            using var matrix = new Mat(3, 3, MatType.CV_64F);
+            matrix.SetArray(new double[] {
+                xx, xy, distance * (Tx + destX) - xx * cx - xy * cy,
+                yx, yy, distance * (Ty + destY) - yx * cx - yy * cy,
+                zx, zy, distance - zx * cx - zy * cy
+            });
+            double determinant = Cv2.Determinant(matrix);
+            var size = new OpenCvSharp.Size(src.Width, src.Height);
+            if (!double.IsFinite(determinant))
+                throw new ArgumentException("投影参数必须为有限数值。");
+            if (Math.Abs(determinant) <= 1e-10 * distance * distance * distance * scale * scale)
+                return new Mat(size, src.Type(), Scalar.All(0));
 
-            // 四角 3D 坐标
-            double halfW = w * scale * 0.5;
-            double halfH = h * scale * 0.5;
-            var corners = new[]
-            {
-                new[] { -halfW, -halfH, d },
-                new[] {  halfW, -halfH, d },
-                new[] {  halfW,  halfH, d },
-                new[] { -halfW,  halfH, d }
-            };
-
-            var dst2D = new Point2f[4];
-            for (int i = 0; i < 4; i++)
-            {
-                var c = corners[i];
-                var centered = new[] { c[0], c[1], 0 }; // 减去 d 再加回来可省略
-                var rotated = Mul(R, centered);
-                double x3 = rotated[0] + Tx;
-                double y3 = rotated[1] + Ty;
-                double z3 = rotated[2] + d; // z 位移
-
-                // 若 z<=0, 采用近似投影到远处，避免 NaN
-                if (z3 <= 1)
-                {
-                    double signX = x3 >= 0 ? 1 : -1;
-                    double signY = y3 >= 0 ? 1 : -1;
-                    dst2D[i] = new Point2f((float)(w * (1.5 + signX)), (float)(h * (1.5 + signY)));
-                }
-                else
-                {
-                    float x2 = (float)(d * x3 / z3 + w / 2.0);
-                    float y2 = (float)(d * y3 / z3 + h / 2.0);
-                    dst2D[i] = new Point2f(x2, y2);
-                }
-            }
-
-            if (!ValidateQuad(dst2D, w, h))
-            {
-                if (_lastH != null && !_lastH.Empty())
-                {
-                    var fallback = new Mat();
-                    Cv2.WarpPerspective(input, fallback, _lastH, new OpenCvSharp.Size(w, h), InterpolationFlags.Linear, BorderTypes.Replicate);
-                    return fallback;
-                }
-            }
-
-            var srcPts = new[] { new Point2f(0, 0), new Point2f(w - 1, 0), new Point2f(w - 1, h - 1), new Point2f(0, h - 1) };
-            using var M = Cv2.GetPerspectiveTransform(srcPts, dst2D);
-            _lastH?.Dispose();
-            _lastH = M.Clone();
-
-            var outMat = new Mat();
-            Cv2.WarpPerspective(input, outMat, M, new OpenCvSharp.Size(w, h), InterpolationFlags.Linear, BorderTypes.Replicate);
-
-            if (outMat.Depth() == MatType.CV_32F || outMat.Depth() == MatType.CV_64F)
-            {
-                Cv2.Min(outMat, 1.0, outMat);
-                Cv2.Max(outMat, 0.0, outMat);
-            }
-            return outMat;
-        }
-
-        private static bool ValidateQuad(Point2f[] pts, int w, int h)
-        {
-            // 计算四边长度
-            double minEdge = double.MaxValue;
-            for (int i = 0; i < 4; i++)
-            {
-                int j = (i + 1) % 4;
-                double len = Math.Sqrt(Math.Pow(pts[i].X - pts[j].X, 2) + Math.Pow(pts[i].Y - pts[j].Y, 2));
-                minEdge = Math.Min(minEdge, len);
-            }
-            if (minEdge < 0.5) return false; // 接近点
-
-            // 面积 (Shoelace)
-            double area = 0.5 * Math.Abs(
-                pts[0].X * (pts[1].Y - pts[3].Y) +
-                pts[1].X * (pts[2].Y - pts[0].Y) +
-                pts[2].X * (pts[3].Y - pts[1].Y) +
-                pts[3].X * (pts[0].Y - pts[2].Y));
-
-            return area > 10; // 仅确保不为零
+            var output = new Mat();
+            Cv2.WarpPerspective(src, output, matrix, size, InterpolationFlags.Linear, BorderTypes.Replicate);
+            return output;
         }
 
         #endregion
@@ -193,10 +124,6 @@ namespace Tunnel_Next.Scripts
                     r[i][j] = A[i][0]*B[0][j] + A[i][1]*B[1][j] + A[i][2]*B[2][j];
             return r;
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static double[] Mul(double[][] M, double[] v) => new[]{ M[0][0]*v[0] + M[0][1]*v[1] + M[0][2]*v[2],
-                                                                      M[1][0]*v[0] + M[1][1]*v[1] + M[1][2]*v[2],
-                                                                      M[2][0]*v[0] + M[2][1]*v[1] + M[2][2]*v[2] };
         #endregion
 
         #region UI/VM (简化版本，按钮样式引用保证一致)
@@ -254,7 +181,24 @@ namespace Tunnel_Next.Scripts
         public override IScriptViewModel CreateViewModel() => new ProjectionVM(this);
         public override Task OnParameterChangedAsync(string p, object o, object n) => Task.CompletedTask;
         public override Dictionary<string, object> SerializeParameters() => new(){{nameof(ThetaX),ThetaX},{nameof(ThetaY),ThetaY},{nameof(ThetaZ),ThetaZ},{nameof(Tx),Tx},{nameof(Ty),Ty},{nameof(Distance),Distance},{nameof(ScalePercent),ScalePercent}};
-        public override void DeserializeParameters(Dictionary<string, object> d){if(d.TryGetValue(nameof(ThetaX),out var v0))ThetaX=Convert.ToDouble(v0);if(d.TryGetValue(nameof(ThetaY),out var v1))ThetaY=Convert.ToDouble(v1);if(d.TryGetValue(nameof(ThetaZ),out var v2))ThetaZ=Convert.ToDouble(v2);if(d.TryGetValue(nameof(Tx),out var v3))Tx=Convert.ToDouble(v3);if(d.TryGetValue(nameof(Ty),out var v4))Ty=Convert.ToDouble(v4);if(d.TryGetValue(nameof(Distance),out var v5))Distance=Convert.ToDouble(v5);if(d.TryGetValue(nameof(ScalePercent),out var v6))ScalePercent=Convert.ToDouble(v6);}        
+        public override void DeserializeParameters(Dictionary<string, object> data)
+        {
+            ThetaX = ReadNumber(data, nameof(ThetaX), ThetaX);
+            ThetaY = ReadNumber(data, nameof(ThetaY), ThetaY);
+            ThetaZ = ReadNumber(data, nameof(ThetaZ), ThetaZ);
+            Tx = ReadNumber(data, nameof(Tx), Tx);
+            Ty = ReadNumber(data, nameof(Ty), Ty);
+            Distance = ReadNumber(data, nameof(Distance), Distance);
+            ScalePercent = ReadNumber(data, nameof(ScalePercent), ScalePercent);
+        }
+        private static double ReadNumber(Dictionary<string, object> values, string key, double fallback)
+        {
+            if (!values.TryGetValue(key, out var raw) || raw == null) return fallback;
+            if (raw is System.Text.Json.JsonElement element)
+                return element.ValueKind == System.Text.Json.JsonValueKind.Number && element.TryGetDouble(out var value) && double.IsFinite(value) ? value : fallback;
+            return double.TryParse(raw.ToString(), out var parsed) && double.IsFinite(parsed) ? parsed : fallback;
+        }
+
 
         public class ProjectionVM : ScriptViewModelBase
         {

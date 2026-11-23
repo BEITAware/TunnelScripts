@@ -52,7 +52,7 @@ public class BooleanInvertScript : TunnelExtensionScriptBase
         try
         {
             // 确保输入是RGBA格式
-            Mat workingMat = EnsureRGBAFormat(inputMat);
+            using Mat workingMat = EnsureRGBAFormat(inputMat);
             
             // 执行布尔取反操作
             Mat resultMat = PerformBooleanInvert(workingMat);
@@ -103,7 +103,8 @@ public class BooleanInvertScript : TunnelExtensionScriptBase
         if (rgbaMat.Type() != MatType.CV_32FC4)
         {
             Mat floatMat = new Mat();
-            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, 1.0 / 255.0);
+            double scale = rgbaMat.Depth() == MatType.CV_16U ? 1.0 / 65535.0 : 1.0 / 255.0;
+            rgbaMat.ConvertTo(floatMat, MatType.CV_32FC4, scale);
             rgbaMat.Dispose();
             return floatMat;
         }
@@ -124,7 +125,7 @@ public class BooleanInvertScript : TunnelExtensionScriptBase
         using (var rgbMat = new Mat())
         {
             Cv2.Merge(new Mat[] { channels[0], channels[1], channels[2] }, rgbMat);
-            Cv2.CvtColor(rgbMat, grayMat, ColorConversionCodes.RGB2GRAY);
+            Cv2.CvtColor(rgbMat, grayMat, ColorConversionCodes.BGR2GRAY);
         }
 
         // 二值化 (>0→1, ≤0→0)

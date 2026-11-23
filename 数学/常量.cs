@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -38,27 +39,18 @@ public class ConstantScript : TunnelExtensionScriptBase
 
     public override Dictionary<string, object> Process(Dictionary<string, object> inputs, IScriptContext context)
     {
-        try
-        {
-            // 尝试转换为浮点数
-            if (!float.TryParse(Value, out float constantValue))
-            {
-                constantValue = 1.0f; // 默认值
-            }
+        if (!TryParseValue(Value, out var constantValue))
+            throw new ArgumentException("请输入有效的有限数值。");
 
-            // 创建1x1像素的RGBA图像
-            Mat constantPixel = new Mat(1, 1, MatType.CV_32FC4);
-            constantPixel.Set<Vec4f>(0, 0, new Vec4f(constantValue, constantValue, constantValue, 1.0f));
+        var pixel = new Mat(1, 1, MatType.CV_32FC4, new Scalar(constantValue, constantValue, constantValue, 1));
+        return new Dictionary<string, object> { ["constant"] = pixel };
+    }
 
-            return new Dictionary<string, object> { ["constant"] = constantPixel };
-        }
-        catch (Exception ex)
-        {
-            // 错误情况下返回默认值(1.0)
-            Mat defaultPixel = new Mat(1, 1, MatType.CV_32FC4);
-            defaultPixel.Set<Vec4f>(0, 0, new Vec4f(1.0f, 1.0f, 1.0f, 1.0f));
-            return new Dictionary<string, object> { ["constant"] = defaultPixel };
-        }
+    internal static bool TryParseValue(string text, out float value)
+    {
+        return (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) ||
+                float.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value)) &&
+               float.IsFinite(value);
     }
 
     public override FrameworkElement CreateParameterControl()
@@ -190,7 +182,7 @@ public class ConstantViewModel : ScriptViewModelBase
     {
         if (parameterName == nameof(Value))
         {
-            if (float.TryParse(value?.ToString(), out _))
+            if (global::ConstantScript.TryParseValue(value?.ToString(), out _))
             {
                 return new ScriptValidationResult(true);
             }

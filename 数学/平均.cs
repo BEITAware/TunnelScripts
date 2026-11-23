@@ -28,8 +28,8 @@ public class AverageScript : TunnelExtensionScriptBase
     {
         return new Dictionary<string, PortDefinition>
         {
-            ["f32bmp1"] = new PortDefinition("F32bmp1", false, "输入图像1"),
-            ["f32bmp2"] = new PortDefinition("F32bmp2", false, "输入图像2")
+            ["f32bmp1"] = new PortDefinition("F32bmp", false, "输入图像1"),
+            ["f32bmp2"] = new PortDefinition("F32bmp", false, "输入图像2")
         };
     }
 

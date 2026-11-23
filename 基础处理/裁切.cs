@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -116,10 +118,10 @@ namespace Tunnel_Next.Scripts
 
         public override IScriptViewModel CreateViewModel() => new CropCutScriptViewModel(this);
         public override Task OnParameterChangedAsync(string name, object old, object @new) => Task.CompletedTask;
-        public override Dictionary<string, object> SerializeParameters() => new() { ["CropRect"] = _cropRectNorm.ToString() };
+        public override Dictionary<string, object> SerializeParameters() => new() { ["CropRect"] = _cropRectNorm.ToString(CultureInfo.InvariantCulture) };
         public override void DeserializeParameters(Dictionary<string, object> data)
         {
-            if (data.TryGetValue("CropRect", out var obj) && obj is string s)
+            if (data.TryGetValue("CropRect", out var obj) && obj?.ToString() is string s)
             {
                 try { _cropRectNorm = WRect.Parse(s); } catch { /* ignore */ }
             }
@@ -405,40 +407,22 @@ namespace Tunnel_Next.Scripts
 
             private BitmapSource ConvertF32MatToBitmapSource(Mat mat)
             {
-                int width = mat.Width;
-                int height = mat.Height;
-                int channels = mat.Channels();
-                var buffer = new byte[width * height * 4];
-
-                for (int y = 0; y < height; y++)
+                using var normalized = new Mat();
+                var scale = mat.Depth() == MatType.CV_8U ? 1.0
+                    : mat.Depth() == MatType.CV_16U ? 255.0 / 65535.0 : 255.0;
+                mat.ConvertTo(normalized, MatType.CV_8U, scale);
+                using var bgra = new Mat();
+                switch (normalized.Channels())
                 {
-                    for (int x = 0; x < width; x++)
-                    {
-                        int i = (y * width + x) * 4;
-                        if (channels == 1)
-                        {
-                            var val = (byte)(Math.Clamp(mat.At<float>(y, x), 0f, 1f) * 255);
-                            buffer[i] = buffer[i + 1] = buffer[i + 2] = val; buffer[i + 3] = 255;
-                        }
-                        else if (channels == 3)
-                        {
-                            var p = mat.At<Vec3f>(y, x);
-                            buffer[i] = (byte)(Math.Clamp(p.Item0, 0f, 1f) * 255);
-                            buffer[i + 1] = (byte)(Math.Clamp(p.Item1, 0f, 1f) * 255);
-                            buffer[i + 2] = (byte)(Math.Clamp(p.Item2, 0f, 1f) * 255);
-                            buffer[i + 3] = 255;
-                        }
-                        else if (channels == 4)
-                        {
-                            var p = mat.At<Vec4f>(y, x);
-                            buffer[i] = (byte)(Math.Clamp(p.Item0, 0f, 1f) * 255);
-                            buffer[i + 1] = (byte)(Math.Clamp(p.Item1, 0f, 1f) * 255);
-                            buffer[i + 2] = (byte)(Math.Clamp(p.Item2, 0f, 1f) * 255);
-                            buffer[i + 3] = (byte)(Math.Clamp(p.Item3, 0f, 1f) * 255);
-                        }
-                    }
+                    case 1: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.GRAY2BGRA); break;
+                    case 3: Cv2.CvtColor(normalized, bgra, ColorConversionCodes.BGR2BGRA); break;
+                    case 4: normalized.CopyTo(bgra); break;
+                    default: throw new ArgumentException("裁切预览需要灰度、BGR 或 BGRA 图像");
                 }
-                var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, buffer, width * 4);
+                int stride = checked(bgra.Width * 4);
+                var buffer = new byte[checked(bgra.Height * stride)];
+                Marshal.Copy(bgra.Data, buffer, 0, buffer.Length);
+                var bmp = BitmapSource.Create(bgra.Width, bgra.Height, 96, 96, PixelFormats.Bgra32, null, buffer, stride);
                 bmp.Freeze();
                 return bmp;
             }
